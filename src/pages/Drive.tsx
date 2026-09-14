@@ -1,0 +1,865 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { createGame } from "@/game/engine";
+import {
+  PAINT_COLORS, VEHICLES, VEHICLE_ORDER,
+  type VehicleKind, type VehicleSpec,
+} from "@/game/vehicles";
+import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type Telemetry, type Weather } from "@/game/types";
+import { ArrowLeft, Cloud, CloudRain, Gauge, Moon, Settings2, Sun, Upload, X, Zap } from "lucide-react";
+
+const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
+
+const TIME_PRESETS: { label: string; hour: number; icon: typeof Sun }[] = [
+  { label: "Dawn", hour: 6.4, icon: Sun },
+  { label: "Noon", hour: 12.5, icon: Sun },
+  { label: "Dusk", hour: 18.6, icon: Sun },
+  { label: "Night", hour: 22.5, icon: Moon },
+];
+
+const WEATHER_PRESETS: { key: Weather; icon: typeof Sun }[] = [
+  { key: "clear", icon: Sun },
+  { key: "overcast", icon: Cloud },
+  { key: "rain", icon: CloudRain },
+];
+
+function key(code: string, down: boolean) {
+  window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { code, bubbles: true }));
+}
+
+export default function Drive() {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const clusterRef = useRef<HTMLCanvasElement | null>(null);
+  const gmeterRef = useRef<HTMLCanvasElement | null>(null);
+  const gameRef = useRef<GameHandle | null>(null);
+
+  const [tel, setTel] = useState<Telemetry | null>(null);
+  const [started, setStarted] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [panel, setPanel] = useState<"none" | "settings" | "car">("none");
+  const [booted, setBooted] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [car, setCar] = useState<VehicleKind>("gt");
+  const [paint, setPaint] = useState(PAINT_COLORS[4]);
+  const [weather, setWeather] = useState<Weather>("clear");
+  const [hour, setHour] = useState(16.2);
+  const [camera, setCamera] = useState(0);
+  const [volume, setVolume] = useState(0.5);
+  const [headlights, setHeadlights] = useState(false);
+
+  const { isAuthenticated } = useAuth();
+  const submitRun = useMutation(api.driverStats.submitRun);
+  const myStats = useQuery(api.driverStats.myStats, isAuthenticated ? {} : "skip");
+
+  const spec: VehicleSpec = VEHICLES[car];
+
+  const notify = useCallback((message: string) => {
+    setNotice(message);
+    window.clearTimeout((notify as unknown as { t?: number }).t);
+    (notify as unknown as { t?: number }).t = window.setTimeout(() => setNotice(null), 2400);
+  }, []);
+
+  /* ---------------------------------------------------------------- engine */
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !clusterRef.current || !gmeterRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.className = "absolute inset-0 h-full w-full block";
+    host.appendChild(canvas);
+    let handle: GameHandle | null = null;
+    try {
+      handle = createGame({
+        canvas,
+        cluster: clusterRef.current,
+        gmeter: gmeterRef.current,
+        onTelemetry: setTel,
+        onToast: notify,
+        onError: (m) => setBootError(m),
+        initialVehicle: "gt",
+        initialWeather: "clear",
+        initialTimeOfDay: 16.2,
+        initialPaint: PAINT_COLORS[4],
+      });
+      gameRef.current = handle;
+      handle.setPaused(true);
+      setBooted(true);
+    } catch (err) {
+      setBootError(err instanceof Error ? err.message : String(err));
+    }
+    return () => {
+      handle?.destroy();
+      gameRef.current = null;
+      canvas.remove();
+    };
+  }, [notify]);
+
+  useEffect(() => {
+    if (booted) return;
+    const t = window.setTimeout(() => {
+      if (!gameRef.current) setBootError((e) => e ?? "The renderer took too long to start.");
+    }, 12000);
+    return () => window.clearTimeout(t);
+  }, [booted]);
+
+  const start = useCallback(() => {
+    setStarted(true);
+    setPaused(false);
+    gameRef.current?.setPaused(false);
+  }, []);
+  const startedRef = useRef(false);
+  const startRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (!startedRef.current) {
+        if (["Enter", "Space", "KeyW", "ArrowUp"].includes(e.code)) {
+          e.preventDefault();
+          startRef.current?.();
+        }
+        return;
+      }
+      if (e.key !== "Escape") return;
+      setPanel((p) => (p === "none" ? "settings" : "none"));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    setPaused((p) => {
+      gameRef.current?.setPaused(!p);
+      return !p;
+    });
+  }, []);
+
+  const chooseCar = useCallback((kind: VehicleKind) => {
+    setCar(kind);
+    gameRef.current?.setVehicle(kind);
+  }, []);
+
+  const choosePaint = useCallback((hex: number) => {
+    setPaint(hex);
+    gameRef.current?.setPaint(hex);
+  }, []);
+
+  const chooseWeather = useCallback((w: Weather) => {
+    setWeather(w);
+    gameRef.current?.setWeather(w);
+  }, []);
+
+  const chooseHour = useCallback((h: number) => {
+    setHour(h);
+    gameRef.current?.setTimeOfDay(h);
+  }, []);
+
+  const chooseCamera = useCallback((c: number) => {
+    setCamera(c);
+    gameRef.current?.setCamera(c);
+  }, []);
+
+  const onImport = useCallback(
+    async (file: File | undefined) => {
+      if (!file || !gameRef.current) return;
+      try {
+        const result = await gameRef.current.importCar(file);
+        toast.success(result, { description: file.name });
+      } catch (err) {
+        toast.error("Import failed", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [],
+  );
+
+  const saveRun = useCallback(async () => {
+    const stats = gameRef.current?.sessionStats();
+    if (!stats) return;
+    try {
+      await submitRun({
+        topSpeedKph: Number(stats.topSpeedKph.toFixed(1)),
+        best0to100: stats.best0to100 === null ? undefined : Number(stats.best0to100.toFixed(2)),
+        distanceKm: Number(stats.distanceKm.toFixed(2)),
+        driftPoints: Math.round(stats.driftPoints),
+        car: VEHICLES[stats.kind].name,
+        seconds: Math.round(stats.seconds),
+      });
+      toast.success("Run saved to your garage", {
+        description: `${Math.round(stats.driftPoints)} drift pts · ${stats.topSpeedKph.toFixed(0)} km/h top`,
+      });
+    } catch (err) {
+      toast.error("Could not save run", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [submitRun]);
+
+  useEffect(() => {
+    startedRef.current = started;
+  }, [started]);
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
+
+  const heat = tel ? tel.heat.reduce((a, b) => a + b, 0) / 4 : 0;
+  const tyreState = useMemo(() => {
+    if (heat < 0.25) return { label: "COLD", className: "text-muted-foreground" };
+    if (heat < 0.65) return { label: "WARM", className: "text-emerald-400" };
+    return { label: "HOT", className: "text-signal" };
+  }, [heat]);
+
+  return (
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-carbon text-chalk select-none">
+      {/* 3D viewport */}
+      <div ref={hostRef} className="absolute inset-0" />
+
+      {/* vignette */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[2]"
+        style={{ background: "radial-gradient(ellipse at center, transparent 52%, rgba(4,5,8,.55) 100%)" }}
+      />
+
+      {/* ------------------------------------------------------------ HUD */}
+      <div className={`pointer-events-none absolute inset-0 z-[3] transition-opacity duration-500 ${started ? "opacity-100" : "opacity-0"}`}>
+        {/* brand */}
+        <div className="absolute left-4 top-4 sm:left-6 sm:top-5">
+          <div className="font-mono text-[10px] tracking-[0.34em] text-signal">APEX CITY · DRIVE</div>
+          <div className="font-display text-xl leading-tight font-bold tracking-tight sm:text-2xl">
+            {spec.name}
+          </div>
+          <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
+            {spec.klass} · {spec.drivetrain.toUpperCase()} · {spec.mass} KG
+          </div>
+        </div>
+
+        {/* mode pills */}
+        <div className="pointer-events-auto absolute left-4 top-24 flex flex-wrap gap-1.5 sm:left-6 sm:top-28">
+          {MODES.map((m, i) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => gameRef.current?.setMode(i)}
+              className={`cursor-pointer border px-2.5 py-1 font-mono text-[10px] tracking-[0.14em] transition-colors ${
+                tel?.modeIndex === i
+                  ? "border-signal bg-signal text-carbon font-semibold"
+                  : "border-white/15 bg-black/45 text-muted-foreground hover:border-signal/60 hover:text-chalk"
+              }`}
+            >
+              {i + 1}·{m}
+            </button>
+          ))}
+        </div>
+
+        {/* telemetry */}
+        <div className="absolute bottom-4 right-4 w-[212px] border border-white/12 bg-black/60 p-3 backdrop-blur-sm sm:bottom-6 sm:right-6">
+          <div className="mb-2 font-mono text-[9px] tracking-[0.3em] text-muted-foreground">TELEMETRY</div>
+          <canvas ref={gmeterRef} className="mx-auto block" width={118} height={118} />
+          <Row label="SPEED" value={tel ? `${Math.round(tel.speedKph)} km/h` : "—"} />
+          <Row label="RPM" value={tel ? Math.round(tel.rpm).toString() : "—"} />
+          <Row label="SURFACE" value={tel?.surface ?? "TARMAC"} />
+          <Row label="DRIFT" value={tel ? `${Math.round(Math.min(tel.driftDeg, 120))}°` : "0°"} />
+          <Row label="DRIFT PTS" value={tel ? Math.round(tel.driftPoints).toLocaleString() : "0"} hot={(tel?.driftDeg ?? 0) > 12} />
+          <Row label="LOAD" value={tel ? `${Math.hypot(tel.gLat, tel.gLon).toFixed(2)} g` : "0.00 g"} />
+          <Row label="TYRES" value={tyreState.label} valueClass={tyreState.className} />
+
+          <div className="mt-2 flex items-end justify-between gap-2">
+            {["FL", "FR", "RL", "RR"].map((w, i) => {
+              const slip = tel ? tel.slip[i] ?? 0 : 0;
+              const pct = Math.min(slip, 1.5) / 1.5;
+              return (
+                <div key={w} className="flex flex-1 flex-col items-center gap-1">
+                  <div className="relative h-11 w-full overflow-hidden bg-white/8">
+                    <div
+                      className={`absolute bottom-0 left-0 right-0 transition-[height] duration-100 ${slip > 0.9 ? "bg-signal" : "bg-emerald-400/80"}`}
+                      style={{ height: `${pct * 100}%` }}
+                    />
+                  </div>
+                  <span className="font-mono text-[8px] tracking-[0.1em] text-muted-foreground">{w}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex justify-between font-mono text-[9px] text-muted-foreground">
+            <span>{tel?.fps ? `${Math.round(tel.fps)} FPS` : "—"}</span>
+            <span>{tel?.physicsHz ?? 240} HZ PHYSICS</span>
+            <span>{tel?.traffic ?? 0} CARS</span>
+          </div>
+        </div>
+
+        {/* cluster */}
+        <div className="absolute bottom-4 left-4 border border-white/12 bg-black/60 p-2 backdrop-blur-sm sm:bottom-6 sm:left-6">
+          <canvas ref={clusterRef} className="block" width={232} height={132} />
+          <div className="px-1 pb-0.5 font-mono text-[8px] tracking-[0.2em] text-muted-foreground">
+            {tel?.gear ?? "D1"} · {WEATHER_LABEL[weather].toUpperCase()} · {tel ? Math.floor(tel.timeOfDay).toString().padStart(2, "0") : "16"}:{tel ? Math.floor((tel.timeOfDay % 1) * 60).toString().padStart(2, "0") : "12"}
+            {headlights ? " · LIGHTS" : ""}
+          </div>
+        </div>
+
+        {/* controls legend */}
+        <div className="absolute right-4 top-4 hidden border border-white/12 bg-black/60 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground backdrop-blur-sm lg:block">
+          <div className="mb-1 tracking-[0.2em] text-chalk">CONTROLS</div>
+          <div><kbd className="text-signal">W</kbd>/<kbd className="text-signal">S</kbd> throttle · brake</div>
+          <div><kbd className="text-signal">A</kbd>/<kbd className="text-signal">D</kbd> steer · <kbd className="text-signal">SPACE</kbd> handbrake</div>
+          <div><kbd className="text-signal">1-4</kbd> drive modes · <kbd className="text-signal">C</kbd> camera</div>
+          <div><kbd className="text-signal">N</kbd> lights · <kbd className="text-signal">R</kbd> reset · <kbd className="text-signal">M</kbd> mute</div>
+          <div><kbd className="text-signal">P</kbd> pause · <kbd className="text-signal">ESC</kbd> settings</div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------- top actions */}
+      <div className={`absolute right-4 top-4 z-[5] flex gap-2 transition-opacity duration-500 lg:top-auto lg:bottom-[268px] ${started ? "opacity-100" : "opacity-0"}`}>
+        <HudButton label="Garage" onClick={() => setPanel(panel === "car" ? "none" : "car")}>
+          <Gauge className="size-4" />
+        </HudButton>
+        <HudButton label="Settings" onClick={() => setPanel(panel === "settings" ? "none" : "settings")}>
+          <Settings2 className="size-4" />
+        </HudButton>
+        <HudButton label={paused ? "Resume" : "Pause"} onClick={togglePause}>
+          {paused ? <Zap className="size-4" /> : <X className="size-4" />}
+        </HudButton>
+      </div>
+
+      {/* mobile touch controls */}
+      {started && (
+        <div className="absolute inset-x-0 bottom-3 z-[5] flex items-end justify-between px-3 lg:hidden">
+          <div className="flex gap-2">
+            <TouchButton code="KeyA" onPointerDown={() => key("KeyA", true)} onPointerUp={() => key("KeyA", false)}>◀</TouchButton>
+            <TouchButton code="KeyD" onPointerDown={() => key("KeyD", true)} onPointerUp={() => key("KeyD", false)}>▶</TouchButton>
+          </div>
+          <div className="flex gap-2">
+            <TouchButton code="Space" onPointerDown={() => key("Space", true)} onPointerUp={() => key("Space", false)}>HB</TouchButton>
+            <TouchButton code="KeyS" onPointerDown={() => key("KeyS", true)} onPointerUp={() => key("KeyS", false)}>BRK</TouchButton>
+            <TouchButton code="KeyW" onPointerDown={() => key("KeyW", true)} onPointerUp={() => key("KeyW", false)}>GAS</TouchButton>
+          </div>
+        </div>
+      )}
+
+      {/* notice */}
+      <div
+        className={`pointer-events-none absolute left-1/2 z-[6] -translate-x-1/2 border border-white/12 bg-black/70 px-4 py-1.5 font-mono text-[11px] tracking-[0.18em] backdrop-blur-sm transition-all duration-300 ${
+          notice ? "bottom-28 opacity-100" : "bottom-24 opacity-0"
+        }`}
+      >
+        {notice}
+      </div>
+
+      {/* --------------------------------------------------------- overlays */}
+      {!booted && !bootError && (
+        <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon">
+          <div className="text-center">
+            <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+            <div className="font-mono text-[11px] tracking-[0.24em] text-muted-foreground">BUILDING APEX CITY…</div>
+          </div>
+        </div>
+      )}
+
+      {bootError && (
+        <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon/95 p-6">
+          <div className="max-w-md border border-destructive/50 bg-black/60 p-6 text-center">
+            <div className="font-display text-xl font-bold tracking-tight">WebGL could not start</div>
+            <p className="mt-2 text-sm text-muted-foreground">{bootError}</p>
+            <Button asChild className="mt-4 cursor-pointer" variant="outline">
+              <Link to="/">Back to home</Link>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {booted && !started && (
+        <IntroOverlay
+          car={car}
+          spec={spec}
+          onChooseCar={chooseCar}
+          onStart={start}
+          paint={paint}
+          onPaint={choosePaint}
+          weather={weather}
+          onWeather={chooseWeather}
+          hour={hour}
+          onHour={chooseHour}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+
+      {started && paused && (
+        <div className="absolute inset-0 z-[7] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="w-[min(92vw,420px)] border border-white/12 bg-carbon p-6 text-center">
+            <div className="font-mono text-[10px] tracking-[0.3em] text-signal">PAUSED</div>
+            <div className="mt-1 font-display text-2xl font-bold tracking-tight">Engine idling</div>
+            <div className="mt-4 grid gap-2">
+              <Button className="cursor-pointer" onClick={togglePause}>Resume driving</Button>
+              <Button variant="outline" className="cursor-pointer" onClick={() => setPanel("car")}>Open garage</Button>
+              {isAuthenticated ? (
+                <Button variant="outline" className="cursor-pointer" onClick={saveRun}>Save run to garage</Button>
+              ) : (
+                <Button variant="outline" asChild className="cursor-pointer">
+                  <Link to="/auth?returnTo=%2Fdrive">Sign in to save runs</Link>
+                </Button>
+              )}
+              <Button variant="ghost" asChild className="cursor-pointer">
+                <Link to="/">Leave the city</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {started && panel === "settings" && (
+        <SidePanel title="Settings" onClose={() => setPanel("none")}>
+          <Group label="Time of day">
+            <div className="grid grid-cols-4 gap-1.5">
+              {TIME_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => chooseHour(p.hour)}
+                  className={`cursor-pointer border px-2 py-2 font-mono text-[10px] tracking-[0.1em] transition-colors ${
+                    Math.abs(hour - p.hour) < 0.2
+                      ? "border-signal bg-signal/15 text-signal"
+                      : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                  }`}
+                >
+                  <p.icon className="mx-auto mb-1 size-3.5" />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="font-mono text-[10px] text-muted-foreground">00</span>
+              <Slider
+                value={[hour]}
+                min={0}
+                max={24}
+                step={0.25}
+                onValueChange={(v) => chooseHour(v[0] ?? 12)}
+                className="cursor-pointer"
+              />
+              <span className="w-10 text-right font-mono text-[10px] text-chalk">
+                {hour.toFixed(1).padStart(4, "0")}
+              </span>
+            </div>
+          </Group>
+
+          <Group label="Weather">
+            <div className="grid grid-cols-3 gap-1.5">
+              {WEATHER_PRESETS.map((w) => {
+                const Icon = w.icon;
+                return (
+                  <button
+                    key={w.key}
+                    type="button"
+                    onClick={() => chooseWeather(w.key)}
+                    className={`cursor-pointer border px-2 py-2 font-mono text-[10px] tracking-[0.1em] transition-colors ${
+                      weather === w.key
+                        ? "border-signal bg-signal/15 text-signal"
+                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                    }`}
+                  >
+                    <Icon className="mx-auto mb-1 size-3.5" />
+                    {WEATHER_LABEL[w.key].toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Rain and overcast skies cut tyre grip and switch the headlights on automatically.
+            </p>
+          </Group>
+
+          <Group label="Camera">
+            <div className="flex flex-wrap gap-1.5">
+              {CAMERA_LABEL.map((c, i) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => chooseCamera(i)}
+                  className={`cursor-pointer border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors ${
+                    camera === i
+                      ? "border-signal bg-signal text-carbon font-semibold"
+                      : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                  }`}
+                >
+                  {c.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </Group>
+
+          <Group label="Assists">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Headlights</Label>
+                <p className="text-[11px] text-muted-foreground">Override the automatic dusk switch.</p>
+              </div>
+              <Switch
+                checked={headlights}
+                className="cursor-pointer"
+                onCheckedChange={(v) => {
+                  setHeadlights(v);
+                  gameRef.current?.setHeadlights(v);
+                }}
+              />
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <Label className="text-xs">Volume</Label>
+              <Slider
+                value={[volume * 100]}
+                min={0}
+                max={100}
+                step={5}
+                className="cursor-pointer"
+                onValueChange={(v) => {
+                  const val = (v[0] ?? 50) / 100;
+                  setVolume(val);
+                  gameRef.current?.setVolume(val);
+                }}
+              />
+            </div>
+          </Group>
+
+          <div className="grid gap-2">
+            <Button variant="outline" className="cursor-pointer" onClick={() => gameRef.current?.reset()}>
+              Reset to the start line
+            </Button>
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept=".glb,.gltf"
+                className="hidden"
+                onChange={(e) => {
+                  void onImport(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+              <span className="flex items-center justify-center gap-2 border border-white/12 px-3 py-2 font-mono text-[11px] tracking-[0.14em] text-muted-foreground transition-colors hover:border-signal/60 hover:text-chalk">
+                <Upload className="size-3.5" /> IMPORT .GLB CAR
+              </span>
+            </label>
+          </div>
+        </SidePanel>
+      )}
+
+      {panel === "car" && (
+        <SidePanel title="Garage" onClose={() => setPanel("none")}>
+          <div className="space-y-2">
+            {VEHICLE_ORDER.map((k) => {
+              const v = VEHICLES[k];
+              const active = car === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => chooseCar(k)}
+                  className={`w-full cursor-pointer border p-3 text-left transition-colors ${
+                    active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-display text-sm font-bold tracking-tight">{v.name}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{v.klass}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                    <span>{v.powerKw} kW</span>
+                    <span>{v.torqueNm} Nm</span>
+                    <span>{v.mass} kg</span>
+                    <span className="uppercase">{v.drivetrain}</span>
+                    <span>0-100 {v.zeroTo100}s</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <Group label="Paint">
+            <div className="flex flex-wrap gap-2">
+              {PAINT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label="paint"
+                  onClick={() => choosePaint(c)}
+                  className={`size-7 cursor-pointer border transition-transform hover:scale-110 ${
+                    paint === c ? "border-signal" : "border-white/20"
+                  }`}
+                  style={{ backgroundColor: `#${c.toString(16).padStart(6, "0")}` }}
+                />
+              ))}
+            </div>
+          </Group>
+
+          <Group label="This run">
+            <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+              <Stat label="TOP SPEED" value={tel ? `${tel.topSpeedKph.toFixed(0)} km/h` : "—"} />
+              <Stat label="0-100 KM/H" value={tel?.best0to100 ? `${tel.best0to100.toFixed(2)} s` : "—"} />
+              <Stat label="DISTANCE" value={tel ? `${tel.distanceKm.toFixed(2)} km` : "—"} />
+              <Stat label="DRIFT PTS" value={tel ? Math.round(tel.driftPoints).toLocaleString() : "0"} />
+            </div>
+            {isAuthenticated ? (
+              <Button className="mt-3 w-full cursor-pointer" onClick={saveRun}>
+                Save run to garage
+              </Button>
+            ) : (
+              <Button variant="outline" asChild className="mt-3 w-full cursor-pointer">
+                <Link to="/auth?returnTo=%2Fdrive">Sign in to save runs</Link>
+              </Button>
+            )}
+            {myStats ? (
+              <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                GARAGE RECORD · {myStats.topSpeedKph.toFixed(0)} km/h · {Math.round(myStats.bestDriftScore).toLocaleString()} drift pts
+                {myStats.best0to100 ? ` · 0-100 ${myStats.best0to100.toFixed(2)} s` : ""}
+              </p>
+            ) : null}
+          </Group>
+        </SidePanel>
+      )}
+
+      {/* back link */}
+      <Link
+        to="/"
+        className={`absolute left-4 top-4 z-[6] hidden items-center gap-1.5 font-mono text-[10px] tracking-[0.2em] text-muted-foreground transition-opacity hover:text-chalk ${started ? "" : "pointer-events-none opacity-0"}`}
+      >
+        <ArrowLeft className="size-3" /> EXIT
+      </Link>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- pieces */
+
+function Row({ label, value, hot, valueClass }: { label: string; value: string; hot?: boolean; valueClass?: string }) {
+  return (
+    <div className="mt-1 flex items-baseline justify-between gap-2">
+      <span className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground">{label}</span>
+      <span className={`font-mono text-[11px] font-medium ${hot ? "text-signal" : (valueClass ?? "text-chalk")}`}>{value}</span>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-white/10 bg-white/4 p-2">
+      <div className="text-[9px] tracking-[0.16em] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-xs text-chalk">{value}</div>
+    </div>
+  );
+}
+
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-white/10 pt-4">
+      <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">{label.toUpperCase()}</div>
+      {children}
+    </div>
+  );
+}
+
+function HudButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      onClick={onClick}
+      className="pointer-events-auto flex size-9 cursor-pointer items-center justify-center border border-white/12 bg-black/60 text-muted-foreground backdrop-blur-sm transition-colors hover:border-signal/60 hover:text-chalk"
+    >
+      {children}
+    </button>
+  );
+}
+
+function TouchButton({
+  code, onPointerDown, onPointerUp, children,
+}: { code: string; onPointerDown: () => void; onPointerUp: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-code={code}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onPointerDown();
+      }}
+      onPointerUp={onPointerUp}
+      onPointerLeave={onPointerUp}
+      onTouchStart={(e) => {
+        e.preventDefault();
+        onPointerDown();
+      }}
+      onTouchEnd={onPointerUp}
+      className="size-14 cursor-pointer touch-none border border-white/15 bg-black/55 font-mono text-[11px] tracking-[0.1em] text-chalk/80 backdrop-blur-sm active:border-signal active:bg-signal/25"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SidePanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="absolute right-0 top-0 z-[8] flex h-full w-[min(92vw,360px)] flex-col border-l border-white/12 bg-carbon/95 backdrop-blur-md">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <span className="font-mono text-[11px] tracking-[0.28em] text-chalk">{title.toUpperCase()}</span>
+        <button type="button" onClick={onClose} className="cursor-pointer text-muted-foreground hover:text-chalk">
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">{children}</div>
+    </div>
+  );
+}
+
+function IntroOverlay({
+  car, spec, onChooseCar, onStart, paint, onPaint, weather, onWeather, hour, onHour, isAuthenticated,
+}: {
+  car: VehicleKind;
+  spec: VehicleSpec;
+  onChooseCar: (k: VehicleKind) => void;
+  onStart: () => void;
+  paint: number;
+  onPaint: (hex: number) => void;
+  weather: Weather;
+  onWeather: (w: Weather) => void;
+  hour: number;
+  onHour: (h: number) => void;
+  isAuthenticated: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 backdrop-blur-[3px]">
+      <div className="max-h-full w-[min(94vw,760px)] overflow-y-auto border border-white/12 bg-black/55 p-5 sm:p-7">
+        <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
+          OPEN CITY · LIVE TRAFFIC · 240 HZ VEHICLE DYNAMICS
+        </div>
+        <h1 className="mt-1 font-display text-4xl leading-none font-bold tracking-tight sm:text-5xl">APEX CITY</h1>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          Eight driveable vehicles on one 240 Hz physics core — Pacejka tyre slip, live suspension load,
+          tyre thermics, weather grip and a city that wakes up at dusk. Pick your car, set the sky, then hold{" "}
+          <span className="text-chalk">W</span>.
+        </p>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-[1.4fr_1fr]">
+          <div>
+            <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">CHOOSE YOUR CAR</div>
+            <div className="grid max-h-[240px] gap-1.5 overflow-y-auto pr-1">
+              {VEHICLE_ORDER.map((k) => {
+                const v = VEHICLES[k];
+                const active = car === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => onChooseCar(k)}
+                    className={`flex cursor-pointer items-center justify-between gap-3 border px-3 py-2 text-left transition-colors ${
+                      active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-display text-sm font-bold tracking-tight">{v.name}</span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">{v.klass}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {v.powerKw} kW · {v.mass} kg
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">PAINT</div>
+              <div className="flex flex-wrap gap-1.5">
+                {PAINT_COLORS.slice(0, 9).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label="paint"
+                    onClick={() => onPaint(c)}
+                    className={`size-6 cursor-pointer border transition-transform hover:scale-110 ${
+                      paint === c ? "border-signal" : "border-white/20"
+                    }`}
+                    style={{ backgroundColor: `#${c.toString(16).padStart(6, "0")}` }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">SKY</div>
+              <div className="grid grid-cols-4 gap-1">
+                {TIME_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => onHour(p.hour)}
+                    className={`cursor-pointer border py-2 font-mono text-[9px] tracking-[0.08em] ${
+                      Math.abs(hour - p.hour) < 0.2 ? "border-signal text-signal" : "border-white/12 text-muted-foreground"
+                    }`}
+                  >
+                    {p.label.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-1.5 grid grid-cols-3 gap-1">
+                {WEATHER_PRESETS.map((w) => (
+                  <button
+                    key={w.key}
+                    type="button"
+                    onClick={() => onWeather(w.key)}
+                    className={`cursor-pointer border py-2 font-mono text-[9px] tracking-[0.08em] ${
+                      weather === w.key ? "border-signal text-signal" : "border-white/12 text-muted-foreground"
+                    }`}
+                  >
+                    {WEATHER_LABEL[w.key].toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border border-white/10 bg-white/4 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {spec.length.toFixed(2)} m · {spec.mass} kg · {spec.torqueNm} Nm · {spec.drivetrain.toUpperCase()}
+              <br />
+              grip {spec.grip.toFixed(2)} · drag {spec.drag.toFixed(2)} · {spec.zeroTo100}s 0-100
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <Button className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]" size="lg" onClick={onStart}>
+            <Zap className="size-4" /> START ENGINE
+          </Button>
+          <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
+            W · A · S · D to drive — SPACE handbrake
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[9px] tracking-[0.16em] text-muted-foreground">
+              240 HZ
+            </Badge>
+            <Badge variant="outline" className="font-mono text-[9px] tracking-[0.16em] text-muted-foreground">
+              PACEJKA
+            </Badge>
+            {isAuthenticated ? (
+              <Link to="/dashboard" className="font-mono text-[10px] tracking-[0.16em] text-signal hover:underline">
+                MY GARAGE
+              </Link>
+            ) : (
+              <Link to="/auth?returnTo=%2Fdashboard" className="font-mono text-[10px] tracking-[0.16em] text-signal hover:underline">
+                SIGN IN
+              </Link>
+            )}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

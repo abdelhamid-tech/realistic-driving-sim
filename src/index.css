@@ -40,6 +40,15 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Apex City motorsport theme tokens */
+  --font-display: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-signal: #ff6a2a;
+  --color-signal-soft: #ffa06a;
+  --color-carbon: #0b0c0f;
+  --color-carbon-2: #14161b;
+  --color-chalk: #ece9e2;
 }
 
 /* CHANGE VALUES FOR THEME */
@@ -123,4 +132,13 @@
   [role="button"]:not([disabled]) {
     cursor: pointer;
   }
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 4.5rem;
+}
+
+::selection {
+  background: rgba(255, 106, 42, 0.35);
 }

@@ -32,7 +32,20 @@ const schema = defineSchema(
       role: v.optional(roleValidator), // role of the user. do not remove
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
-    // add other tables here
+    // one record per driver, holding their personal bests
+    driverRecords: defineTable({
+      userId: v.id("users"),
+      car: v.optional(v.string()),
+      topSpeedKph: v.number(),
+      best0to100: v.optional(v.number()),
+      bestDriftScore: v.number(),
+      distanceKm: v.number(),
+      seconds: v.number(),
+      runs: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_drift", ["bestDriftScore"]),
 
     // tableName: defineTable({
     //   ...
