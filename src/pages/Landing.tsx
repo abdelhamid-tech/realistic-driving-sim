@@ -6,9 +6,10 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { PAINT_COLORS, VEHICLES, VEHICLE_ORDER } from "@/game/catalog";
+import { CAR_MODELS, formatBytes } from "@/game/carmodels";
 import {
-  CarFront, CloudRain, Compass, Gauge, Moon, Route, Snowflake, Sparkles, Thermometer,
-  Timer, Trophy, Upload, Wind, Zap,
+  CarFront, CloudRain, Compass, Download, Gauge, Moon, Route, Snowflake, Sparkles,
+  Thermometer, Timer, Trophy, Upload, Wind, Zap,
 } from "lucide-react";
 
 const hex = (n: number) => `#${n.toString(16).padStart(6, "0")}`;
@@ -181,6 +182,7 @@ export default function Landing() {
           </Link>
           <nav className="ml-2 hidden items-center gap-6 font-mono text-[10px] tracking-[0.2em] text-muted-foreground md:flex">
             <a className="transition-colors hover:text-chalk" href="#cars">CARS</a>
+            <a className="transition-colors hover:text-chalk" href="#models">MODELS</a>
             <a className="transition-colors hover:text-chalk" href="#sim">SIMULATION</a>
             <a className="transition-colors hover:text-chalk" href="#board">LEADERBOARD</a>
           </nav>
@@ -216,10 +218,9 @@ export default function Landing() {
           }}
         />
         <div className="relative mx-auto grid w-full max-w-6xl items-center gap-10 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.15fr_1fr]">
-          <motion.div initial="hidden" animate="show" variants={fade} transition={{ duration: 0.6 }}>
-            <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
-              OPEN CITY DRIVING · 8 VEHICLES · LIVE TRAFFIC
-            </div>
+          <motion.div initial="hidden" animate="show" variants={fade} transition={{ duration: 0.6 }}>              <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
+                OPEN CITY DRIVING · 8 BUILT-IN CARS · ONE-CLICK MODEL LIBRARY
+              </div>
             <h1 className="mt-4 font-display text-5xl leading-[0.95] font-bold tracking-tight sm:text-6xl lg:text-7xl">
               The city is your
               <span className="block text-signal">test track.</span>
@@ -227,7 +228,8 @@ export default function Landing() {
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
               Apex City is a browser driving simulator with real vehicle modelling at its core. Pick a
               sports coupe, a bus or anything between, then push it through rain, dusk and traffic on a
-              city that reacts to the way you drive.
+              city that reacts to the way you drive. Or skip the lineup and pull a real car straight off
+              the internet — no account, no API key.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]">
@@ -322,6 +324,66 @@ export default function Landing() {
               </motion.div>
             );
           })}
+        </div>
+      </Section>
+
+      {/* model library */}
+      <Section
+        id="models"
+        eyebrow="ONE CLICK · NO ACCOUNT · NO API KEY"
+        title="Borrow a real car, or drop in your own .glb"
+      >
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.85fr]">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {CAR_MODELS.map((m, i) => (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }}
+                transition={{ duration: 0.4, delay: i * 0.05 }}
+                className="group border border-white/12 bg-black/35 p-4 transition-colors hover:border-signal/50"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-display text-base leading-tight font-bold tracking-tight">{m.name}</h3>
+                  <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] tracking-[0.14em] text-muted-foreground">
+                    <Download className="size-3 transition-colors group-hover:text-signal" />
+                    {formatBytes(m.bytes).toUpperCase()}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{m.detail}</p>
+                <div className="mt-3 border-t border-white/8 pt-2 font-mono text-[9px] leading-relaxed tracking-[0.1em] text-muted-foreground">
+                  <div className="uppercase">{m.license}</div>
+                  <div className="truncate">{m.author}</div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="border border-white/12 bg-carbon/70 p-5">
+            <div className="font-mono text-[10px] tracking-[0.24em] text-muted-foreground">
+              WHAT HAPPENS WHEN YOU CLICK
+            </div>
+            <ul className="mt-4 space-y-2 text-sm">
+              <ControlRow keys="1" action="Fetch the .glb straight from the CDN" />
+              <ControlRow keys="2" action="Find the four wheel nodes by name" />
+              <ControlRow keys="3" action="Measure wheelbase, track and tyre radius" />
+              <ControlRow keys="4" action="Bolt them onto the live suspension" />
+              <ControlRow keys="5" action="Blend the body into your paint colour" />
+            </ul>
+            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+              No Sketchfab login, no token, no upload step. Wheels it cannot identify stay rigid, and a
+              single button turns the car around if a model faces backwards.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 font-mono text-[9px] tracking-[0.14em] text-muted-foreground">
+              <span className="flex items-center gap-1.5 border border-white/10 px-2 py-1.5">
+                <CarFront className="size-3" /> AUTO-RIGGED WHEELS
+              </span>
+              <span className="flex items-center gap-1.5 border border-white/10 px-2 py-1.5">
+                <Upload className="size-3" /> LOCAL .GLB IMPORT
+              </span>
+            </div>
+          </div>
         </div>
       </Section>
 

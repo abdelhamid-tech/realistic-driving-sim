@@ -74,7 +74,16 @@ export interface GameHandle {
   setHeadlights(on: boolean): void;
   setPaused(paused: boolean): void;
   reset(): void;
+  /** Installs a local .glb/.gltf file as the player's car. */
   importCar(file: File): Promise<string>;
+  /**
+   * Downloads a car GLB from a public, CORS-enabled, no-account source and
+   * auto-rigs it: wheels found by name, nose orientation, size and physics
+   * spec taken from the model. The base kind decides the dynamics inherited.
+   */
+  loadCarModel(url: string, label: string, base: VehicleKind): Promise<string>;
+  /** Turns the imported model 180 degrees around, for nose-backwards models. */
+  flipImportedModel(): void;
   setVolume(v: number): void;
   sessionStats(): SessionStats;
 }

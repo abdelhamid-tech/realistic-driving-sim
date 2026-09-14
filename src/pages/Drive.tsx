@@ -10,12 +10,13 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { createGame } from "@/game/engine";
+import { CAR_MODELS, formatBytes, type CarModelSource } from "@/game/carmodels";
 import {
   PAINT_COLORS, VEHICLES, VEHICLE_ORDER,
   type VehicleKind, type VehicleSpec,
 } from "@/game/vehicles";
 import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type Telemetry, type Weather } from "@/game/types";
-import { ArrowLeft, Cloud, CloudRain, Gauge, Moon, Settings2, Sun, Upload, X, Zap } from "lucide-react";
+import { ArrowLeft, Cloud, CloudRain, Download, Gauge, Moon, RotateCcw, Settings2, Sun, Upload, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
 
@@ -51,6 +52,9 @@ export default function Drive() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [car, setCar] = useState<VehicleKind>("gt");
+  const [activeModel, setActiveModel] = useState<CarModelSource | null>(null);
+  const [customModel, setCustomModel] = useState<string | null>(null);
+  const [modelBusy, setModelBusy] = useState<string | null>(null);
   const [paint, setPaint] = useState(PAINT_COLORS[4]);
   const [weather, setWeather] = useState<Weather>("clear");
   const [hour, setHour] = useState(16.2);
@@ -147,7 +151,32 @@ export default function Drive() {
 
   const chooseCar = useCallback((kind: VehicleKind) => {
     setCar(kind);
+    setActiveModel(null);
+    setCustomModel(null);
     gameRef.current?.setVehicle(kind);
+  }, []);
+
+  /** One click: download a model from the public CDN and auto-rig it. */
+  const loadModel = useCallback(async (m: CarModelSource) => {
+    const game = gameRef.current;
+    if (!game || modelBusy) return;
+    setModelBusy(m.id);
+    try {
+      const report = await game.loadCarModel(m.url, m.name, m.base);
+      setActiveModel(m);
+      setCustomModel(null);
+      toast.success(report, { description: `${m.author} · ${m.license}` });
+    } catch (err) {
+      toast.error("Could not load " + m.name, {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setModelBusy(null);
+    }
+  }, [modelBusy]);
+
+  const flipModel = useCallback(() => {
+    gameRef.current?.flipImportedModel();
   }, []);
 
   const choosePaint = useCallback((hex: number) => {
@@ -175,6 +204,8 @@ export default function Drive() {
       if (!file || !gameRef.current) return;
       try {
         const result = await gameRef.current.importCar(file);
+        setActiveModel(null);
+        setCustomModel(file.name);
         toast.success(result, { description: file.name });
       } catch (err) {
         toast.error("Import failed", {
@@ -582,6 +613,57 @@ export default function Drive() {
               );
             })}
           </div>
+
+          <Group label="Model library">
+            <p className="mb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              Real car models fetched straight from public CDNs — no account, no API key. The
+              wheels, size and driving spec are read off the model itself.
+            </p>
+            <div className="space-y-2">
+              {CAR_MODELS.map((m) => {
+                const active = activeModel?.id === m.id;
+                const busy = modelBusy === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void loadModel(m)}
+                    className={`w-full border p-3 text-left transition-colors ${
+                      active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                    } ${busy ? "cursor-wait opacity-70" : "cursor-pointer"}`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-display text-sm font-bold tracking-tight">{m.name}</span>
+                      <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                        {busy ? "DOWNLOADING…" : formatBytes(m.bytes)}
+                        {busy ? null : <Download className="size-3" />}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                      {m.detail}
+                      <br />
+                      {m.license} · {m.author}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {activeModel || customModel ? (
+              <div className="mt-2 flex items-center justify-between gap-2 border border-white/12 p-2">
+                <span className="truncate font-mono text-[10px] text-muted-foreground">
+                  {activeModel?.name ?? customModel}
+                </span>
+                <button
+                  type="button"
+                  onClick={flipModel}
+                  className="flex shrink-0 cursor-pointer items-center gap-1 font-mono text-[10px] tracking-[0.14em] text-muted-foreground transition-colors hover:text-chalk"
+                >
+                  <RotateCcw className="size-3" /> TURN AROUND
+                </button>
+              </div>
+            ) : null}
+          </Group>
 
           <Group label="Paint">
             <div className="flex flex-wrap gap-2">

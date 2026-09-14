@@ -1,10 +1,13 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import {
   buildFleetTemplate, buildVehicle, cloneFleetVehicle, GROUND_LIFT, PAINT_COLORS,
   randomTrafficKind, VEHICLES,
-  type FleetTemplate, type VehicleBuild, type VehicleKind, type VehicleSpec,
+  type FleetTemplate, type VehicleBuild, type VehicleKind, type VehicleMaterials,
+  type VehicleSpec, type WheelRig,
 } from "./vehicles";
+import { parseWheelName, planRig, sanitiseMeasured, type RigPlan, type WheelSample } from "./rigging";
 import {
   CITY_R, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
 } from "./city";
@@ -1006,7 +1009,12 @@ export function createGame(opts: GameOptions): GameHandle {
   }
 
   function applyCarSpec(kind: VehicleKind) {
-    spec = VEHICLES[kind];
+    applySpecObject(VEHICLES[kind]);
+  }
+
+  /** Installs a spec — catalogue kind or measurements taken off a model. */
+  function applySpecObject(next: VehicleSpec) {
+    spec = next;
     MASS = spec.mass;
     const mr = MASS / 1350;
     KSPR = 62000 * mr;
@@ -1944,6 +1952,8 @@ export function createGame(opts: GameOptions): GameHandle {
 
   /* ------------------------------------------------------------ player car */
   function mountPlayer(kind: VehicleKind) {
+    imported = null;
+    bodyPaintMats = [];
     if (player) {
       carGroup.remove(player.root);
       for (const r of player.rigs) carGroup.remove(r.pivot);
@@ -1982,6 +1992,7 @@ export function createGame(opts: GameOptions): GameHandle {
   function applyPaint(hex: number) {
     paintHex = hex;
     if (player) (player.materials.paint as THREE.MeshPhysicalMaterial).color.setHex(hex);
+    for (const m of bodyPaintMats) m.color.setHex(hex);
   }
 
   /* ----------------------------------------------------------- camera rigs */
@@ -2311,54 +2322,428 @@ export function createGame(opts: GameOptions): GameHandle {
     updateEnvironment(true);
   }
 
+  /* =====================================================================
+   *  CAR MODEL IMPORT — one click, no account, no API key.
+   *
+   *  A GLB arrives knowing nothing about being a car: wheels are just nodes
+   *  somewhere in the hierarchy, the nose points wherever the author left
+   *  it, and the units are arbitrary. This measures the model, works out
+   *  which way it faces, then re-parents its wheels onto real rigs so it
+   *  steers, spins and takes suspension travel instead of sliding about as
+   *  a static prop. The physics gets a spec taken off the model itself.
+   * ===================================================================*/
+  const AXIS_Y = V3(0, 1, 0);
+  let modelLoaderInstance: GLTFLoader | null = null;
+  function modelLoader(): GLTFLoader {
+    if (!modelLoaderInstance) {
+      const draco = new DRACOLoader();
+      /* the decoder ships in /public/draco, so there is no CDN round trip */
+      draco.setDecoderPath(new URL("draco/gltf/", document.baseURI).href);
+      modelLoaderInstance = new GLTFLoader();
+      modelLoaderInstance.setDRACOLoader(draco);
+    }
+    return modelLoaderInstance;
+  }
+
+  interface RigJoint {
+    pivot: THREE.Group;
+    orient: THREE.Group;
+    /** hub position and wheel orientation in raw model space */
+    x: number;
+    y: number;
+    z: number;
+    quat: THREE.Quaternion;
+    scale: THREE.Vector3;
+  }
+  interface ImportedModel {
+    holder: THREE.Group;
+    label: string;
+    base: VehicleKind;
+    yaw: number;
+    scale: number;
+    /** raw-space point that must land on the car's origin */
+    centre: THREE.Vector3;
+    /** raw-space height that must land on the wheel centre line */
+    yRef: number;
+    joints: RigJoint[];
+    measured: { length: number; width: number; height: number; wheelbase: number; track: number; wheelR: number };
+  }
+  let imported: ImportedModel | null = null;
+  let bodyPaintMats: THREE.MeshStandardMaterial[] = [];
+  let userYaw = 0;
+
+  const PAINT_MAT = /paint|body_?colou?r|shell|exterior|koerper|carroceria/i;
+  const NOT_PAINT_MAT = /glass|window|chrome|trim|light|lamp|brake|tire|tyre|rim|interior|leather|seat|mirror|plate|panel|badge|logo|grill|wiper|exhaust|carpet|fabric|rubber|metal/i;
+  const HEAD_MAT = /headlight|head_?lamp|projector|front_?light|lights?_front/i;
+  const TAIL_MAT = /tail_?light|tail_?lamp|rear_?light|lights?_rear/i;
+  const BRAKE_MAT = /brake_?light|stop_?lamp/i;
+  const REVERSE_MAT = /reverse|backup/i;
+
+  const dummyMat = (color: number, emissive = 0x000000, intensity = 0) =>
+    new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: intensity });
+
+  /** The model's own materials, keyed by lower-cased name. */
+  function materialsByName(root: THREE.Object3D) {
+    const map = new Map<string, THREE.MeshStandardMaterial>();
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const list = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of list) {
+        const std = mat as THREE.MeshStandardMaterial;
+        if (!std || !std.name) continue;
+        const key = std.name.toLowerCase();
+        if (!map.has(key)) map.set(key, std);
+      }
+    });
+    return map;
+  }
+  const findMat = (map: Map<string, THREE.MeshStandardMaterial>, re: RegExp) => {
+    for (const [k, m] of map) if (re.test(k)) return m;
+    return null;
+  };
+
+  /** Frees a model's geometry, materials and textures. */
+  function disposeModel(root: THREE.Object3D) {
+    const KEYS = [
+      "map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap", "alphaMap",
+      "clearcoatMap", "clearcoatNormalMap", "clearcoatRoughnessMap", "sheenColorMap",
+      "sheenRoughnessMap", "specularMap", "specularColorMap", "iridescenceMap",
+      "transmissionMap", "thicknessMap", "lightMap",
+    ];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry?.dispose();
+      const list = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of list) {
+        const std = mat as unknown as Record<string, unknown>;
+        if (!std) continue;
+        for (const k of KEYS) {
+          const tex = std[k] as THREE.Texture | undefined;
+          if (tex && tex.isTexture) tex.dispose();
+        }
+        (std as unknown as THREE.Material).dispose?.();
+      }
+    });
+  }
+
+  /** Places the model and its wheels, honouring any manual flip. */
+  function layoutImported() {
+    const imp = imported;
+    if (!imp) return;
+    const s = imp.scale;
+    const yaw = imp.yaw + userYaw;
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const rx = (x: number, z: number) => x * cy + z * sy;
+    const rz = (x: number, z: number) => -x * sy + z * cy;
+    imp.holder.rotation.y = yaw;
+    imp.holder.scale.setScalar(s);
+    const cx = imp.centre.x * s;
+    const cz = imp.centre.z * s;
+    /* wheels on the ride-height line, body centred over them */
+    imp.holder.position.set(-rx(cx, cz), REST_WY - imp.yRef * s, -rz(cx, cz));
+    const qy = new THREE.Quaternion().setFromAxisAngle(AXIS_Y, yaw);
+    imp.joints.forEach((j, i) => {
+      const jx = j.x * s;
+      const jz = j.z * s;
+      j.pivot.position.set(rx(jx, jz), REST_WY, rz(jx, jz));
+      j.orient.quaternion.copy(qy).multiply(j.quat);
+      j.orient.scale.copy(j.scale).multiplyScalar(s);
+      const rig = player?.rigs[i];
+      if (rig) {
+        rig.x = j.pivot.position.x;
+        rig.z = j.pivot.position.z;
+      }
+    });
+  }
+
+  /** Some models are drawn nose-first the other way round: turn it around. */
+  function flipImportedModel() {
+    const imp = imported;
+    const built = player;
+    if (!imp || !built || imp.joints.length < 4) return;
+    userYaw += Math.PI;
+    /* the steered pair must stay the pair the physics steers */
+    const order = [2, 3, 0, 1];
+    const rigs = order.map((k) => built.rigs[k]).filter(Boolean) as WheelRig[];
+    const joints = order.map((k) => imp.joints[k]).filter(Boolean) as RigJoint[];
+    if (rigs.length !== 4) return;
+    rigs.forEach((r, i) => {
+      r.front = i < 2;
+    });
+    built.rigs = rigs;
+    imp.joints = joints;
+    layoutImported();
+    onToast("Model turned around");
+  }
+
+  /**
+   * Takes a loaded glTF scene and makes it the player's car: measures it,
+   * rigs the wheels it can find, and hands the physics a spec from the model.
+   */
+  function installModel(scene: THREE.Object3D, label: string, base: VehicleKind): string {
+    /* ---- 1. measure the untouched model on an identity stage ---------- */
+    const holder = new THREE.Group();
+    holder.add(scene);
+    const stage = new THREE.Group();
+    stage.add(holder);
+    stage.updateMatrixWorld(true);
+    const raw = new THREE.Box3().setFromObject(holder);
+    if (raw.isEmpty() || !isFinite(raw.min.x)) throw new Error("Model has no geometry");
+    const rawSize = raw.getSize(V3());
+
+    /* ---- 2. which nodes are wheels ------------------------------------ */
+    const wheelNodes: THREE.Object3D[] = [];
+    holder.traverse((o) => {
+      if (!o.name || !parseWheelName(o.name)) return;
+      for (let a = o.parent; a && a !== holder; a = a.parent) {
+        if (a.name && parseWheelName(a.name)) return; /* inner rim, disc, nut… */
+      }
+      wheelNodes.push(o);
+    });
+    const samples: WheelSample[] = [];
+    const wheelBoxes: THREE.Box3[] = [];
+    for (const o of wheelNodes) {
+      const box = new THREE.Box3().setFromObject(o);
+      const hub = box.getCenter(V3());
+      samples.push({
+        id: samples.length, name: o.name, x: hub.x, y: hub.y, z: hub.z,
+        radius: Math.max(0.002, (box.max.y - box.min.y) / 2),
+      });
+      wheelBoxes.push(box);
+    }
+    const plan = samples.length >= 4
+      ? planRig(samples, { min: [raw.min.x, raw.min.y, raw.min.z], max: [raw.max.x, raw.max.y, raw.max.z] })
+      : null;
+
+    /* ---- 3. size it so the wheels meet the physics -------------------- */
+    const baseSpec = VEHICLES[base];
+    const horizontal = Math.max(rawSize.x, rawSize.z);
+    let scale = plan && plan.wheelbase > 0.01
+      ? baseSpec.wheelbase / plan.wheelbase
+      : baseSpec.length / Math.max(1e-3, horizontal);
+    if (!isFinite(scale) || scale <= 0) scale = baseSpec.length / Math.max(1e-3, horizontal);
+    scale = clamp(scale, 1e-3, 400);
+    const yaw = plan ? plan.yaw : 0;
+
+    /* measure again in the final frame, so numbers match what is drawn */
+    const fit = new THREE.Group();
+    fit.rotation.y = yaw;
+    fit.scale.setScalar(scale);
+    fit.add(holder);
+    fit.updateMatrixWorld(true);
+    const sized = new THREE.Box3().setFromObject(holder);
+    const size = sized.getSize(V3());
+
+    /* ---- 4. rig the wheels ------------------------------------------- */
+    const joints: RigJoint[] = [];
+    const rigs: WheelRig[] = [];
+    for (let i = 0; i < 4; i++) {
+      const id = plan ? plan.slot[i] : null;
+      if (id === null || !wheelNodes[id]) continue;
+      const node = wheelNodes[id];
+      const sample = samples[id];
+      const box = wheelBoxes[id];
+      const quat = new THREE.Quaternion();
+      const sc = V3();
+      const at = V3();
+      node.updateWorldMatrix(true, false);
+      node.matrixWorld.decompose(at, quat, sc);
+      /* put the tyre's centre on the spin axis, not merely its origin */
+      const local = box.getCenter(V3()).applyMatrix4(node.matrixWorld.clone().invert()).negate();
+      const pivot = new THREE.Group();
+      pivot.userData.wheelRig = true;
+      const spin = new THREE.Group();
+      spin.userData.wheelSpin = true;
+      const orient = new THREE.Group();
+      pivot.add(spin);
+      spin.add(orient);
+      orient.add(node);
+      node.position.copy(local);
+      node.quaternion.identity();
+      node.scale.set(1, 1, 1);
+      joints.push({ pivot, orient, x: sample.x, y: sample.y, z: sample.z, quat, scale: sc.clone() });
+      rigs.push({
+        pivot, spin, front: i < 2, x: sample.x * scale, z: sample.z * scale,
+        radius: sample.radius * scale,
+        width: Math.max(0.05, Math.min(box.max.x - box.min.x, box.max.z - box.min.z) * 0.5 * scale),
+      });
+    }
+
+    /* ---- 5. the car the physics drives ------------------------------- */
+    const measured = sanitiseMeasured({
+      length: size.z,
+      width: size.x,
+      height: size.y,
+      wheelbase: plan ? plan.wheelbase * scale : baseSpec.wheelbase,
+      track: plan ? plan.track * scale : baseSpec.track,
+      wheelR: plan ? plan.wheelR * scale : baseSpec.wheelR,
+    });
+    const derived: VehicleSpec = {
+      ...baseSpec, name: label,
+      length: measured.length, width: measured.width, height: measured.height,
+      wheelbase: measured.wheelbase, track: measured.track, wheelR: measured.wheelR,
+    };
+    applySpecObject(derived);
+
+    /* ---- 6. paint and the model's own lamps -------------------------- */
+    const mats = materialsByName(scene);
+    bodyPaintMats = [];
+    for (const [key, m] of mats) {
+      if (!PAINT_MAT.test(key) || NOT_PAINT_MAT.test(key)) continue;
+      bodyPaintMats.push(m);
+      m.color.setHex(paintHex);
+      if ("clearcoat" in m) {
+        const phys = m as THREE.MeshPhysicalMaterial;
+        phys.clearcoat = Math.max(0.55, phys.clearcoat ?? 0);
+        phys.clearcoatRoughness = Math.min(0.14, phys.clearcoatRoughness ?? 0.1);
+      }
+    }
+    const light = (re: RegExp, emissive: number) => {
+      const found = findMat(mats, re);
+      if (found) {
+        found.emissive.setHex(emissive);
+        found.emissiveIntensity = 0.12;
+        return found;
+      }
+      return dummyMat(0x16181c, emissive, 0);
+    };
+    const materials: VehicleMaterials = {
+      paint: bodyPaintMats[0] ?? dummyMat(paintHex),
+      glass: findMat(mats, /glass|window/i) ?? dummyMat(0x22303c),
+      trim: findMat(mats, /trim|plastic|rubber|rubberised/i) ?? dummyMat(0x2a2c30),
+      chrome: findMat(mats, /chrome|metal/i) ?? dummyMat(0xb9c0c6),
+      tyre: findMat(mats, /tire|tyre/i) ?? dummyMat(0x14161a),
+      rim: findMat(mats, /rim|alloy/i) ?? dummyMat(0x9aa2a8),
+      caliper: findMat(mats, /caliper|disc|brake/i) ?? dummyMat(0xa8352a),
+      head: light(HEAD_MAT, 0xfff4e0),
+      tail: light(TAIL_MAT, 0xff2a10),
+      brake: light(BRAKE_MAT, 0xff2a10),
+      reverse: light(REVERSE_MAT, 0xfff8f0),
+      plate: findMat(mats, /plate|licen/i) ?? dummyMat(0xe8e4d8),
+      cabin: findMat(mats, /interior|leather|carpet|dash|seat/i) ?? dummyMat(0x1d1f24),
+    };
+
+    /* ---- 7. mount it ------------------------------------------------- */
+    if (player) {
+      carGroup.remove(player.root);
+      disposeModel(player.root);
+      for (const r of player.rigs) {
+        carGroup.remove(r.pivot);
+        disposeModel(r.pivot);
+      }
+    }
+    carGroup.add(holder);
+    for (const r of rigs) carGroup.add(r.pivot);
+
+    const hz = measured.length / 2 - 0.12;
+    const hx = measured.track * 0.36;
+    const hy = REST_WY + measured.wheelR * 0.8;
+    headL.position.set(hx, hy, hz - 0.05);
+    headR.position.set(-hx, hy, hz - 0.05);
+    headTL.position.set(hx, hy, hz + 32);
+    headTR.position.set(-hx, hy, hz + 32);
+    tailGlowL.position.set(hx, hy, -hz);
+    tailGlowR.position.set(-hx, hy, -hz);
+
+    userYaw = 0;
+    /* centre the body on the wheelbase, not the bounding box, so the drawn
+       wheels land exactly on the axles the physics integrates */
+    const centre = V3();
+    if (plan && joints.length) {
+      centre.set(
+        joints.reduce((a, j) => a + j.x, 0) / joints.length, 0,
+        joints.reduce((a, j) => a + j.z, 0) / joints.length,
+      );
+    } else {
+      raw.getCenter(centre);
+      centre.y = 0;
+    }
+    const yRef = plan && joints.length
+      ? joints.reduce((a, j) => a + j.y, 0) / joints.length
+      : raw.min.y + measured.wheelR / scale;
+    player = {
+      root: holder, rigs, steering: null, materials, spec: derived,
+      gy: GROUND_LIFT + measured.wheelR,
+      headAnchors: [headL.position.clone(), headR.position.clone()],
+      tailAnchors: [tailGlowL.position.clone(), tailGlowR.position.clone()],
+    };
+    imported = { holder, label, base, yaw, scale, centre, yRef, joints, measured };
+    layoutImported();
+    car.reset();
+    opts.onReady?.(derived);
+
+    const dims = `${measured.length.toFixed(2)} × ${measured.width.toFixed(2)} m`;
+    if (rigs.length === 4) {
+      return `Rigged 4 wheels · ${measured.wheelbase.toFixed(2)} m wheelbase · ${dims}`;
+    }
+    if (rigs.length) return `Rigged ${rigs.length} wheels · ${dims}`;
+    return `Loaded rigid · no wheel nodes found · ${dims}`;
+  }
+
+  /** Downloads a GLB with progress and installs it. */
+  async function loadCarModel(url: string, label: string, base: VehicleKind): Promise<string> {
+    if (!url) throw new Error("No model URL");
+    onToast(`Downloading ${label}…`);
+    let data: ArrayBuffer;
+    try {
+      const res = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const total = Number(res.headers.get("content-length") ?? 0);
+      if (res.body && total > 1_500_000) {
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let got = 0;
+        let shown = -1;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            got += value.length;
+            const pct = Math.round((got / total) * 100);
+            if (pct !== shown) {
+              shown = pct;
+              onToast(`${label} · ${pct}%`);
+            }
+          }
+        }
+        const merge = new Uint8Array(got);
+        let off = 0;
+        for (const c of chunks) {
+          merge.set(c, off);
+          off += c.length;
+        }
+        data = merge.buffer;
+      } else {
+        data = await res.arrayBuffer();
+      }
+    } catch (err) {
+      throw new Error(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const scene = await new Promise<THREE.Group>((resolve, reject) => {
+      modelLoader().parse(data, "", (g) => resolve(g.scene as THREE.Group), reject);
+    });
+    const report = installModel(scene, label, base);
+    onToast(report);
+    return report;
+  }
+
   async function importCar(file: File) {
     if (!file) return "No file";
     const ext = (file.name.split(".").pop() || "").toLowerCase();
     if (ext !== "glb" && ext !== "gltf") throw new Error(`Unsupported format .${ext} (use .glb)`);
-    if (file.size > 150 * 1024 * 1024) throw new Error("File larger than 150 MB");
-    const loader = new GLTFLoader();
+    if (file.size > 180 * 1024 * 1024) throw new Error("File larger than 180 MB");
     const data = ext === "glb" ? await file.arrayBuffer() : await file.text();
-    const gltf = await new Promise<{ scene: THREE.Group }>((res, rej) => {
-      loader.parse(data as ArrayBuffer, "", (g) => res(g as unknown as { scene: THREE.Group }), rej);
+    const scene = await new Promise<THREE.Group>((resolve, reject) => {
+      modelLoader().parse(data as ArrayBuffer, "", (g) => resolve(g.scene as THREE.Group), reject);
     });
-    const root = gltf.scene;
-    if (!root) throw new Error("Empty model");
-    const wheels: THREE.Object3D[] = [];
-    root.traverse((o) => {
-      const n = (o.name || "").toLowerCase();
-      if (/(wheel|whl|tire|tyre|rim)/.test(n) && /fl|fr|rl|rr|front|rear|left|right/.test(n)) wheels.push(o);
-    });
-    root.updateMatrixWorld(true);
-    const bb = new THREE.Box3().setFromObject(root);
-    const size = bb.getSize(V3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    if (!isFinite(maxDim) || maxDim <= 1e-4) throw new Error("Empty model");
-    root.scale.multiplyScalar(spec.length / maxDim);
-    root.updateMatrixWorld(true);
-    const bb2 = new THREE.Box3().setFromObject(root);
-    const c = bb2.getCenter(V3());
-    const min = bb2.min.clone();
-    root.position.x -= c.x;
-    root.position.z -= c.z;
-    root.position.y += REST_WY - RAD + 0.02 - min.y;
-    root.updateMatrixWorld(true);
-    root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        m.castShadow = true;
-        m.receiveShadow = false;
-        const mat = m.material as THREE.MeshStandardMaterial;
-        if (mat && "envMapIntensity" in mat) mat.envMapIntensity = 0.85;
-      }
-    });
-    if (player) {
-      carGroup.remove(player.root);
-      for (const r of player.rigs) carGroup.remove(r.pivot);
-    }
-    carGroup.add(root);
-    player = null;
-    onToast(`Imported ${file.name.slice(0, 26)}`);
-    return wheels.length ? "Imported (wheels detected)" : "Imported";
+    const label = file.name.replace(/\.[^.]+$/, "").slice(0, 28);
+    const report = installModel(scene, label, spec.kind);
+    onToast(report);
+    return report;
   }
 
   /* --------------------------------------------------------------- the loop */
@@ -2528,7 +2913,7 @@ export function createGame(opts: GameOptions): GameHandle {
     carGroup.position.copy(car.pos);
     carGroup.quaternion.copy(car.quat);
     if (player) {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < Math.min(4, player.rigs.length); i++) {
         const rig = player.rigs[i];
         const wc = car.wc[i];
         const wy = HARD_Y - (REST - (wc.contact ? Math.min(wc.comp, REST) : REST));
@@ -2781,6 +3166,8 @@ export function createGame(opts: GameOptions): GameHandle {
       resetCones();
     },
     importCar,
+    loadCarModel,
+    flipImportedModel,
     setVolume(v: number) {
       volume = clamp(v, 0, 1);
       muted = volume <= 0.01;
