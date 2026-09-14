@@ -151,7 +151,12 @@ const FEATURES = [
   {
     icon: Route,
     title: "A living city, not a track",
-    body: "Ten boulevards, sixty blocks of instanced towers, parks, car parks, ramps, cones and fourteen AI traffic cars that stop, queue and turn through junctions.",
+    body: "Ten boulevards on a green-wave signal plan, eighty blocks of towers and street walls, parks, car parks, ramps and fourteen AI traffic cars that stop, queue and turn through junctions.",
+  },
+  {
+    icon: Sparkles,
+    title: "Furnished street by street",
+    body: "Slatted benches, tapered litter bins, hydrants, reflector bollards, planters, parking meters, Sheffield bike racks with parked bikes, bus shelters with glazing and a timetable, newsstands, telephone boxes, cash machines, scaffolding, café terraces under parasols, skips, market stalls and string banners — every piece built part by part, and solid enough to hit.",
   },
   {
     icon: Compass,
@@ -226,10 +231,11 @@ export default function Landing() {
               <span className="block text-signal">test track.</span>
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
-              Apex City is a browser driving simulator with real vehicle modelling at its core. Pick a
+              Apex City is a browser driving simulator with real vehicle modelling at its core.              Pick a
               sports coupe, a bus or anything between, then push it through rain, dusk and traffic on a
-              city that reacts to the way you drive. Or skip the lineup and pull a real car straight off
-              the internet — no account, no API key.
+              city that reacts to the way you drive — down boulevards furnished bench by bench,
+              hydrant by hydrant. Or skip the lineup and pull a real car straight off the internet —
+              no account, no API key.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]">

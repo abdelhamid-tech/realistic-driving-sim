@@ -40,6 +40,7 @@ export interface Block {
   cx: number; cz: number; w: number; d: number;
   type: string;
   i: number; j: number;
+  /** solid boxes the car collides with: buildings and street furniture */
   blds: BuildingBox[];
   park?: boolean;
 }
@@ -316,6 +317,25 @@ function makeBatch(geo: THREE.BufferGeometry, mat: THREE.Material, shadow: boole
   return { geo, mat, list: [], shadow };
 }
 
+/**
+ * One instanced draw call per (geometry, material, shadow) pair that is
+ * actually used, so a furniture piece can be assembled from as many parts as
+ * it needs without the draw-call count growing with it.
+ */
+function makePartCache(batches: Batch[]) {
+  const cache = new Map<string, Batch>();
+  return (geo: THREE.BufferGeometry, mat: THREE.Material, shadow = false): Batch => {
+    const key = `${geo.uuid}:${mat.uuid}:${shadow ? 1 : 0}`;
+    let b = cache.get(key);
+    if (!b) {
+      b = makeBatch(geo, mat, shadow);
+      cache.set(key, b);
+      batches.push(b);
+    }
+    return b;
+  };
+}
+
 function put(b: Batch, x: number, y: number, z: number, sx: number, sy: number, sz: number, yaw = 0, pitch = 0) {
   _p.set(x, y, z);
   _e.set(pitch, yaw, 0);
@@ -366,7 +386,7 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   boxGeo.translate(0, 0.5, 0);
   const planeGeo = new THREE.PlaneGeometry(1, 1);
   planeGeo.rotateX(-Math.PI / 2);
-  const cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+  const cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
   cylGeo.translate(0, 0.5, 0);
   const discGeo = new THREE.CircleGeometry(0.5, 14);
   discGeo.rotateX(-Math.PI / 2);
@@ -375,6 +395,15 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const coneGeo = new THREE.ConeGeometry(0.5, 1, 8);
   coneGeo.translate(0, 0.5, 0);
   const blobGeo = new THREE.IcosahedronGeometry(0.5, 1);
+  /* furniture primitives: sphere for caps and knobs, taper for cast-iron
+     bodies, a dome for bin lids, a half ring for bike stands, a full ring
+     for wheels and hoops */
+  const sphereGeo = new THREE.SphereGeometry(0.5, 8, 6);
+  const capGeo = new THREE.SphereGeometry(0.5, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+  const taperGeo = new THREE.CylinderGeometry(0.4, 0.5, 1, 8);
+  taperGeo.translate(0, 0.5, 0);
+  const hoopGeo = new THREE.TorusGeometry(0.5, 0.045, 4, 10, Math.PI);
+  const ringGeo2 = new THREE.TorusGeometry(0.5, 0.055, 5, 12);
 
   /* ---------------------------------------------------------- materials */
   const roadPatchMat = new THREE.MeshStandardMaterial({
@@ -439,6 +468,45 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
     transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5,
   });
   const skylineMat = new THREE.MeshStandardMaterial({ color: 0x6a7183, roughness: 1, envMapIntensity: 0.4, fog: true });
+  /* (furniture materials follow) */
+
+  /* --- street-furniture materials -------------------------------------
+     Painted cast iron, galvanised steel, moulded plastic, glazing, enamel,
+     tarpaulin, stone and soil: the handful of real materials a street is
+     actually furnished from. */
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x2d3a33, roughness: 0.52, metalness: 0.45, envMapIntensity: 0.7 });
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x9ba2a7, roughness: 0.32, metalness: 0.82, envMapIntensity: 1.05 });
+  const plasticMat = new THREE.MeshStandardMaterial({ color: 0x2b2e32, roughness: 0.68, metalness: 0.08, envMapIntensity: 0.45 });
+  const redMat = new THREE.MeshStandardMaterial({ color: 0x9c2c22, roughness: 0.48, metalness: 0.28, envMapIntensity: 0.7 });
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xab8b45, roughness: 0.34, metalness: 0.88, envMapIntensity: 1.1 });
+  const rubberMat = new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.92, envMapIntensity: 0.2 });
+  const paneMat = new THREE.MeshStandardMaterial({
+    color: 0xa9becd, roughness: 0.07, metalness: 0.3, transparent: true, opacity: 0.34,
+    envMapIntensity: 1.5, side: THREE.DoubleSide,
+  });
+  const netMat = new THREE.MeshStandardMaterial({
+    color: 0xcfd8c8, roughness: 0.9, transparent: true, opacity: 0.24,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0xb4b0a6, roughness: 0.94, envMapIntensity: 0.4 });
+  const soilMat = new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 1 });
+  const flowerMat = new THREE.MeshStandardMaterial({ color: 0xa8334a, roughness: 0.85, envMapIntensity: 0.3 });
+  const waterMat = new THREE.MeshStandardMaterial({
+    color: 0x22414a, roughness: 0.04, metalness: 0.65, envMapIntensity: 1.7,
+    transparent: true, opacity: 0.86,
+  });
+  const greenMat = new THREE.MeshStandardMaterial({ color: 0x1e4b33, roughness: 0.58, metalness: 0.2, envMapIntensity: 0.5 });
+  const canvasMat = new THREE.MeshStandardMaterial({
+    map: canvasTex(128, 128, (x, w, h) => {
+      const bands = 8;
+      for (let i = 0; i < bands; i++) {
+        x.fillStyle = i % 2 ? "#e9e3d4" : "#b4452f";
+        x.fillRect(0, (i * h) / bands, w, h / bands + 1);
+      }
+      noiseOn(x, w, h, 1800, 0.05);
+    }, aniso),
+    roughness: 0.88, side: THREE.DoubleSide, envMapIntensity: 0.25,
+  });
 
   /* facade materials, two lit variants per style */
   const facadeMats: Record<string, { mat: THREE.MeshStandardMaterial; style: FacadeStyle }> = {};
@@ -1087,50 +1155,529 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   }
 
   /* ------------------------------------------------------ street furniture */
-  const furnitureAlong = (c: number, vertical: boolean) => {
-    for (let d = -CITY_R + 30; d < CITY_R - 30; d += 26) {
-      if (isJunction(d)) continue;
-      const s = srng() < 0.5 ? 1 : -1;
-      const x = vertical ? c + s * 8.4 : d;
-      const z = vertical ? d : c + s * 8.4;
-      const yaw = vertical ? Math.PI / 2 : 0;
-      const r = srng();
-      if (r < 0.16) {
-        put(binBatch, x, WALK_H, z, 0.6, 0.85, 0.6);
-      } else if (r < 0.3) {
-        put(hydrantBatch, x, WALK_H, z, 0.28, 0.7, 0.28);
-        put(blobGeo ? hydrantBatch : hydrantBatch, x, WALK_H + 0.6, z, 0.42, 0.2, 0.42);
-      } else if (r < 0.46) {
-        put(bollardBatch, x, WALK_H, z, 0.16, 0.85, 0.16);
-        put(bollardBatch, x + (vertical ? 0 : 1.3), WALK_H, z + (vertical ? 1.3 : 0), 0.16, 0.85, 0.16);
-      } else if (r < 0.6) {
-        put(planterBatch, x, WALK_H, z, 1.6, 0.55, 1.6);
-        put(shrubBatch, x, WALK_H + 0.75, z, 1.7, 0.9, 1.7);
-      } else if (r < 0.78) {
-        put(benchBatch, x, WALK_H + 0.45, z, 1.9, 0.12, 0.5, yaw);
-        put(benchLegBatch, x - (vertical ? 0 : 0.7), WALK_H + 0.2, z - (vertical ? 0.7 : 0), 0.14, 0.4, 0.45);
-        put(benchLegBatch, x + (vertical ? 0 : 0.7), WALK_H + 0.2, z + (vertical ? 0.7 : 0), 0.14, 0.4, 0.45);
-      } else if (r < 0.9) {
-        put(meterPoleBatch, x, WALK_H, z, 0.09, 1.15, 0.09);
-        put(meterHeadBatch, x, WALK_H + 1.2, z, 0.22, 0.36, 0.16, yaw);
-      } else {
-        put(signPoleBatch, x, WALK_H, z, 0.09, 2.8, 0.09);
-        put(signPlateBatch[(srng() < 0.7 ? 0 : 1)], x, WALK_H + 3.0, z, 1, 1, 1, yaw + Math.PI / 2);
+  /*
+   * Real pieces, part by part. A bench is a run of slats on cast-iron ends
+   * with an armrest; a bin has a foot, a tapered barrel, a rim and a domed
+   * lid; a shelter has posts, glazing, a fascia, a bench and a timetable; a
+   * bicycle has two wheels, a frame, a saddle and bars. Placement is
+   * deliberate as well — benches face the road, hydrants and bollards stand
+   * at the kerb, trees keep a rhythm, racks sit outside doors, scaffolding
+   * climbs a frontage, cafés terrace onto the sunny side of a block. Anything
+   * substantial is filed as a solid box, so you hit it instead of driving
+   * through it.
+   */
+  const skin = makePartCache(batches);
+  const slat = skin(boxGeo, woodMat);
+  const ironBox = skin(boxGeo, ironMat);
+  const ironCyl = skin(cylGeo, ironMat);
+  const ironTaper = skin(taperGeo, ironMat);
+  const ironBall = skin(sphereGeo, ironMat);
+  const ironHoop = skin(hoopGeo, ironMat);
+  const steelBox = skin(boxGeo, steelMat);
+  const steelCyl = skin(cylGeo, steelMat);
+  const paneBox = skin(boxGeo, paneMat);
+  const netBox = skin(boxGeo, netMat);
+  const plasticBox = skin(boxGeo, plasticMat);
+  const plasticCyl = skin(cylGeo, plasticMat);
+  const plasticTaper = skin(taperGeo, plasticMat);
+  const plasticDome = skin(capGeo, plasticMat);
+  const plasticBlob = skin(blobGeo, plasticMat);
+  const rubberRing = skin(ringGeo2, rubberMat);
+  const redBox = skin(boxGeo, redMat);
+  const redCyl = skin(cylGeo, redMat);
+  const redDome = skin(capGeo, redMat);
+  const brassBox = skin(boxGeo, brassMat);
+  const darkBox = skin(boxGeo, darkMetalMat);
+  const darkCyl = skin(cylGeo, darkMetalMat);
+  const canvasBox = skin(boxGeo, canvasMat);
+  const canvasCone = skin(coneGeo, canvasMat);
+  const stoneBox = skin(boxGeo, stoneMat);
+  const stoneCyl = skin(cylGeo, stoneMat);
+  const stoneShaft = skin(taperGeo, stoneMat);
+  const stoneBall = skin(sphereGeo, stoneMat);
+  const waterDisc = skin(discGeo, waterMat);
+  const soilBox = skin(boxGeo, soilMat);
+  const bloom = skin(blobGeo, flowerMat);
+  const leafBlob = skin(blobGeo, leafMat);
+  const whiteBand = skin(cylGeo, paintWhite);
+  const concreteBox = skin(boxGeo, concreteMat);
+  const greenBox = skin(boxGeo, greenMat);
+  const lampBox = skin(boxGeo, lampMaterial, true);
+  const bannerPlate = skin(new THREE.PlaneGeometry(0.62, 1.9), new THREE.MeshStandardMaterial({
+    map: canvasTex(96, 288, (x, w, h) => {
+      x.fillStyle = "#14161a";
+      x.fillRect(0, 0, w, h);
+      x.fillStyle = "#ff6a2a";
+      x.fillRect(0, 0, w, 14);
+      x.fillRect(0, h - 14, w, 14);
+      x.save();
+      x.translate(w / 2, h / 2 - 30);
+      x.rotate(-Math.PI / 2);
+      x.fillStyle = "#ece9e2";
+      x.font = "700 34px Rajdhani, system-ui, sans-serif";
+      x.textAlign = "center";
+      x.textBaseline = "middle";
+      x.fillText("APEX CITY", 0, 0);
+      x.fillStyle = "#ff6a2a";
+      x.font = "500 15px 'IBM Plex Mono', monospace";
+      x.fillText("OPEN CITY DRIVING", 0, 26);
+      x.restore();
+    }, aniso),
+    roughness: 0.72, side: THREE.DoubleSide, envMapIntensity: 0.3,
+  }), false);
+  const busStopPlate = skin(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshStandardMaterial({
+    map: canvasTex(128, 128, (x, w, h) => {
+      x.fillStyle = "#f2efe6";
+      x.fillRect(0, 0, w, h);
+      x.fillStyle = "#1d3f78";
+      x.fillRect(6, 6, w - 12, h - 12);
+      x.fillStyle = "#f2efe6";
+      x.fillRect(26, 34, 76, 50);
+      x.fillStyle = "#1d3f78";
+      x.fillRect(32, 42, 28, 18);
+      x.fillRect(68, 42, 28, 18);
+      x.fillStyle = "#f2efe6";
+      x.beginPath();
+      x.arc(44, 90, 9, 0, Math.PI * 2);
+      x.arc(84, 90, 9, 0, Math.PI * 2);
+      x.fill();
+    }, aniso),
+    roughness: 0.55, side: THREE.DoubleSide,
+  }), false);
+
+  /** A part in a piece's own frame: u along the piece, v across it, h above its base. */
+  function at(b: Batch, x: number, z: number, yaw: number, u: number, v: number, h: number, sx: number, sy: number, sz: number, base = WALK_H) {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    put(b, x + u * c + v * s, base + h, z - u * s + v * c, sx, sy, sz, yaw);
+  }
+  /** Same, for the flat plates (signs, banners) whose origin is their centre. */
+  function plate(b: Batch, x: number, z: number, yaw: number, u: number, v: number, h: number, sc = 1, base = WALK_H) {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    put(b, x + u * c + v * s, base + h, z - u * s + v * c, sc, sc, sc, yaw);
+  }
+  /* Furniture stands on the pavement apron, which reaches KERB_APRON past
+     the block edge, so the block to file it against is the one the apron
+     reaches back to — the same rule cityH uses. */
+  const hostBlock = (x: number, z: number) =>
+    blockAt(x, z) ??
+    blockAt(x - KERB_APRON, z) ??
+    blockAt(x + KERB_APRON, z) ??
+    blockAt(x, z - KERB_APRON) ??
+    blockAt(x, z + KERB_APRON);
+  /** Files a piece as something you can hit, in the list the buildings use. */
+  function solid(x: number, z: number, hw: number, hd: number, top: number) {
+    const b = hostBlock(x, z);
+    if (b) b.blds.push({ x, z, hx: hw, hz: hd, top });
+  }
+  /** The axis-aligned footprint of a piece running along `yaw`. */
+  function footprint(x: number, z: number, halfLong: number, halfWide: number, yaw: number, top: number) {
+    const cu = Math.abs(Math.cos(yaw));
+    const su = Math.abs(Math.sin(yaw));
+    const b = hostBlock(x, z);
+    if (b) b.blds.push({ x, z, hx: halfLong * cu + halfWide * su, hz: halfLong * su + halfWide * cu, top });
+  }
+
+  /* --- bench: four seat slats, three back slats, cast-iron ends --------- */
+  function benchAt(x: number, z: number, yaw: number, len = 1.9, base = WALK_H) {
+    for (let i = 0; i < 4; i++) at(slat, x, z, yaw, 0, -0.185 + i * 0.117, 0.42, len, 0.05, 0.105, base);
+    for (let i = 0; i < 3; i++) at(slat, x, z, yaw, 0, -0.45 + i * 0.025, 0.6 + i * 0.19, len, 0.085, 0.045, base);
+    for (const u of [-len / 2 + 0.07, len / 2 - 0.07]) {
+      at(ironBox, x, z, yaw, u, 0.14, 0, 0.055, 0.42, 0.05, base);
+      at(ironBox, x, z, yaw, u, -0.45, 0, 0.055, 1.06, 0.05, base);
+      at(ironBox, x, z, yaw, u, -0.17, 0.37, 0.055, 0.05, 0.58, base);
+      at(ironBox, x, z, yaw, u, -0.3, 0.61, 0.05, 0.05, 0.32, base);
+    }
+    footprint(x, z, len / 2 + 0.06, 0.5, yaw, base + 1.1);
+  }
+
+  /* --- litter bin: foot, tapered barrel, rim, domed lid, mouth ---------- */
+  function binAt(x: number, z: number, base = WALK_H) {
+    at(ironCyl, x, z, 0, 0, 0, 0, 0.5, 0.06, 0.5, base);
+    at(plasticTaper, x, z, 0, 0, 0, 0.06, 0.52, 0.76, 0.52, base);
+    at(ironCyl, x, z, 0, 0, 0, 0.82, 0.56, 0.08, 0.56, base);
+    at(plasticDome, x, z, 0, 0, 0, 0.9, 0.54, 0.22, 0.54, base);
+    at(plasticBox, x, z, 0, 0, 0.2, 0.94, 0.28, 0.1, 0.2, base);
+    solid(x, z, 0.32, 0.32, base + 1.1);
+  }
+
+  /* --- fire hydrant: flange, barrel, collar, bonnet, wing caps, nut ----- */
+  function hydrantAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(redCyl, x, z, yaw, 0, 0, 0, 0.32, 0.07, 0.32, base);
+    at(redCyl, x, z, yaw, 0, 0, 0.07, 0.24, 0.5, 0.24, base);
+    at(redCyl, x, z, yaw, 0, 0, 0.57, 0.34, 0.1, 0.34, base);
+    at(redDome, x, z, yaw, 0, 0, 0.67, 0.3, 0.2, 0.3, base);
+    at(brassBox, x, z, yaw, 0, 0, 0.87, 0.1, 0.07, 0.1, base);
+    for (const u of [-0.17, 0.17]) at(brassBox, x, z, yaw, u, 0, 0.38, 0.09, 0.15, 0.15, base);
+    solid(x, z, 0.22, 0.22, base + 0.9);
+  }
+
+  /* --- cast-iron bollard: base, tapered post, reflector, collar, ball --- */
+  function bollardAt(x: number, z: number, base = WALK_H) {
+    at(ironCyl, x, z, 0, 0, 0, 0, 0.24, 0.05, 0.24, base);
+    at(ironTaper, x, z, 0, 0, 0, 0.05, 0.27, 0.8, 0.27, base);
+    at(whiteBand, x, z, 0, 0, 0, 0.7, 0.24, 0.08, 0.24, base);
+    at(ironCyl, x, z, 0, 0, 0, 0.85, 0.31, 0.06, 0.31, base);
+    at(ironBall, x, z, 0, 0, 0, 0.91, 0.25, 0.25, 0.25, base);
+    solid(x, z, 0.17, 0.17, base + 1.05);
+  }
+
+  /* --- planter: trough, coping, soil, clipped hedge, flowers ------------ */
+  function planterAt(x: number, z: number, yaw: number, w = 1.5, base = WALK_H) {
+    const dep = w * 0.62;
+    at(concreteBox, x, z, yaw, 0, 0, 0, w, 0.5, dep, base);
+    at(concreteBox, x, z, yaw, 0, 0, 0.5, w + 0.12, 0.09, dep + 0.12, base);
+    at(soilBox, x, z, yaw, 0, 0, 0.56, w - 0.16, 0.04, dep - 0.16, base);
+    for (let i = 0; i < 3; i++) at(leafBlob, x, z, yaw, (i - 1) * w * 0.26, 0, 0.6, 0.72, 0.58, 0.5, base);
+    at(leafBlob, x, z, yaw, 0, 0, 0.78, w * 0.86, 0.46, dep * 0.8, base);
+    for (let i = 0; i < 3; i++) at(bloom, x, z, yaw, (i - 1) * 0.34, 0.08, 0.86, 0.17, 0.13, 0.17, base);
+    footprint(x, z, w / 2 + 0.06, dep / 2 + 0.06, yaw, base + 0.62);
+  }
+
+  /* --- parking meter: base, post, head, display, slot, crown ------------ */
+  function meterAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(ironCyl, x, z, yaw, 0, 0, 0, 0.2, 0.09, 0.2, base);
+    at(ironCyl, x, z, yaw, 0, 0, 0.09, 0.1, 1.02, 0.1, base);
+    at(steelBox, x, z, yaw, 0, 0, 1.11, 0.26, 0.42, 0.18, base);
+    at(darkBox, x, z, yaw, 0, 0.1, 1.24, 0.16, 0.13, 0.02, base);
+    at(brassBox, x, z, yaw, 0.07, 0.1, 1.42, 0.04, 0.07, 0.02, base);
+    at(steelBox, x, z, yaw, 0, 0, 1.53, 0.3, 0.06, 0.22, base);
+    solid(x, z, 0.17, 0.17, base + 1.45);
+  }
+
+  /* --- sign on a post: post, clamp, plate ------------------------------- */
+  function signAt(x: number, z: number, yaw: number, which: number, base = WALK_H) {
+    at(steelCyl, x, z, yaw, 0, 0, 0, 0.09, 2.95, 0.09, base);
+    at(darkBox, x, z, yaw, 0, 0.06, 2.62, 0.15, 0.06, 0.06, base);
+    plate(signPlateBatch[which], x, z, yaw, 0, 0.1, 2.82, 1, base);
+    solid(x, z, 0.14, 0.14, base + 2.95);
+  }
+
+  /* --- utility cabinet: plinth, body, door, vent, lock ------------------ */
+  function cabinetAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(concreteBox, x, z, yaw, 0, 0, 0, 1.05, 0.1, 0.6, base);
+    at(greenBox, x, z, yaw, 0, 0, 0.1, 0.95, 1.35, 0.5, base);
+    at(darkBox, x, z, yaw, 0, 0.26, 0.24, 0.78, 1.05, 0.02, base);
+    at(darkBox, x, z, yaw, 0, 0.26, 0.1, 0.9, 0.05, 0.03, base);
+    at(brassBox, x, z, yaw, 0.38, 0.28, 0.72, 0.06, 0.1, 0.03, base);
+    footprint(x, z, 0.5, 0.32, yaw, base + 1.45);
+  }
+
+  /* --- post box: plinth, letter drum, cap, slot, plate ------------------ */
+  function postBoxAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(concreteBox, x, z, yaw, 0, 0, 0, 0.6, 0.08, 0.5, base);
+    at(redBox, x, z, yaw, 0, 0, 0.08, 0.52, 0.95, 0.42, base);
+    at(redDome, x, z, yaw, 0, 0, 1.03, 0.52, 0.26, 0.42, base);
+    at(darkBox, x, z, yaw, 0, 0.22, 0.82, 0.3, 0.05, 0.02, base);
+    at(brassBox, x, z, yaw, 0, 0.22, 0.42, 0.34, 0.14, 0.02, base);
+    footprint(x, z, 0.3, 0.26, yaw, base + 1.3);
+  }
+
+  /* --- parking ticket machine ------------------------------------------- */
+  function ticketAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(concreteBox, x, z, yaw, 0, 0, 0, 0.5, 0.1, 0.4, base);
+    at(steelBox, x, z, yaw, 0, 0, 0.1, 0.4, 1.45, 0.3, base);
+    at(darkBox, x, z, yaw, 0, 0.16, 1.05, 0.24, 0.3, 0.03, base);
+    at(brassBox, x, z, yaw, -0.1, 0.16, 0.86, 0.12, 0.04, 0.03, base);
+    at(steelBox, x, z, yaw, 0, 0, 1.55, 0.46, 0.08, 0.38, base);
+    footprint(x, z, 0.24, 0.2, yaw, base + 1.6);
+  }
+
+  /* --- telephone kiosk: frame, three glazed sides, roof, crown ---------- */
+  function phoneBoxAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(concreteBox, x, z, yaw, 0, 0, 0, 1.1, 0.12, 1.1, base);
+    for (const u of [-0.45, 0.45]) for (const v of [-0.45, 0.45]) at(redBox, x, z, yaw, u, v, 0.12, 0.13, 2.2, 0.13, base);
+    for (const v of [-0.45, 0.45]) at(redBox, x, z, yaw, 0, v, 2.32, 1.04, 0.1, 0.13, base);
+    at(redBox, x, z, yaw, -0.45, 0, 2.32, 0.13, 0.1, 0.9, base);
+    at(paneBox, x, z, yaw, 0, 0.45, 0.32, 0.82, 1.9, 0.04, base);
+    at(paneBox, x, z, yaw, 0, -0.45, 0.32, 0.82, 1.9, 0.04, base);
+    at(paneBox, x, z, yaw, -0.45, 0, 0.32, 0.04, 1.9, 0.82, base);
+    at(redBox, x, z, yaw, 0, 0.45, 2.22, 0.94, 0.12, 0.1, base);
+    at(redDome, x, z, yaw, 0, 0, 2.42, 1.0, 0.3, 1.0, base);
+    at(brassBox, x, z, yaw, 0, 0, 2.72, 0.24, 0.1, 0.24, base);
+    at(greenBox, x, z, yaw, 0, -0.38, 0.3, 0.5, 0.5, 0.06, base);
+    solid(x, z, 0.62, 0.62, base + 2.7);
+  }
+
+  /* --- newsstand kiosk: plinth, body, glazing, counter, canopy ---------- */
+  function kioskAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(concreteBox, x, z, yaw, 0, 0, 0, 2.5, 0.14, 2.1, base);
+    at(greenBox, x, z, yaw, 0, 0, 0.14, 2.4, 1.05, 2.0, base);
+    at(paneBox, x, z, yaw, 0, 1.0, 1.19, 2.2, 1.15, 0.06, base);
+    at(paneBox, x, z, yaw, 1.2, 0, 1.19, 0.06, 1.15, 1.7, base);
+    at(greenBox, x, z, yaw, 0, 1.05, 0.95, 2.44, 0.28, 0.24, base);
+    at(canvasBox, x, z, yaw, 0, 1.22, 2.34, 2.9, 0.07, 0.7, base);
+    at(darkBox, x, z, yaw, 0, 1.16, 2.46, 2.6, 0.14, 0.1, base);
+    at(brassBox, x, z, yaw, 0, 1.08, 1.05, 0.5, 0.14, 0.03, base);
+    footprint(x, z, 1.25, 1.05, yaw, base + 2.5);
+  }
+
+  /* --- bus shelter: posts, roof, fascia, glazing, bench, panel, flag ---- */
+  function shelterAt(x: number, z: number, yaw: number, base = WALK_H) {
+    for (const u of [-2.1, 2.1]) {
+      for (const v of [-0.85, 0.85]) at(ironBox, x, z, yaw, u, v, 0, 0.12, 2.42, 0.1, base);
+      at(ironBox, x, z, yaw, u, 0, 2.38, 0.12, 0.1, 1.8, base);
+    }
+    at(darkBox, x, z, yaw, 0, 0, 2.46, 4.5, 0.12, 1.95, base);
+    at(steelBox, x, z, yaw, 0, 0.88, 2.3, 4.4, 0.22, 0.08, base);
+    at(steelBox, x, z, yaw, 0, -0.88, 2.3, 4.4, 0.22, 0.08, base);
+    at(paneBox, x, z, yaw, 0, 0.86, 0.3, 4.1, 1.95, 0.05, base);
+    for (const u of [-1.4, 0, 1.4]) at(ironBox, x, z, yaw, u, 0.86, 0.3, 0.07, 1.95, 0.07, base);
+    at(paneBox, x, z, yaw, -2.1, 0, 0.3, 0.05, 1.95, 1.6, base);
+    for (let i = 0; i < 3; i++) at(slat, x, z, yaw, 0, 0.36 + i * 0.13, 0.5, 3.3, 0.05, 0.11, base);
+    for (const u of [-1.5, 0, 1.5]) at(ironBox, x, z, yaw, u, 0.4, 0, 0.05, 0.5, 0.1, base);
+    at(greenBox, x, z, yaw, -2.0, 0, 1.45, 0.06, 0.5, 0.42, base);
+    at(plasticTaper, x, z, yaw, 2.75, 0.7, 0, 0.42, 0.6, 0.42, base);
+    at(steelCyl, x, z, yaw, -2.9, 0.95, 0, 0.09, 3.2, 0.09, base);
+    plate(busStopPlate, x, z, yaw, -2.9, 0.95, 2.55, 1, base);
+    footprint(x, z, 2.3, 1.0, yaw, base + 2.5);
+  }
+
+  /* --- pedestrian guard rail: posts, top rail, rails, infill ----------- */
+  function railingAt(x: number, z: number, yaw: number, len: number, base = WALK_H) {
+    const n = Math.max(2, Math.round(len / 1.8));
+    for (let i = 0; i <= n; i++) at(steelCyl, x, z, yaw, -len / 2 + (len * i) / n, 0, 0, 0.07, 0.95, 0.07, base);
+    at(steelBox, x, z, yaw, 0, 0, 0.87, len, 0.06, 0.06, base);
+    for (let k = 1; k <= 2; k++) at(steelBox, x, z, yaw, 0, 0, 0.25 + k * 0.21, len, 0.03, 0.03, base);
+    const bars = Math.max(3, Math.round(len / 0.6));
+    for (let i = 0; i < bars; i++) at(steelBox, x, z, yaw, -len / 2 + (len * (i + 0.5)) / bars, 0, 0.1, 0.025, 0.72, 0.025, base);
+    footprint(x, z, len / 2, 0.14, yaw, base + 0.95);
+  }
+
+  /* --- bicycle: two wheels, a frame, saddle and bars ------------------- */
+  function bikeAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(rubberRing, x, z, yaw, 0.55, 0, 0.34, 0.68, 0.68, 0.68, base);
+    at(rubberRing, x, z, yaw, -0.55, 0, 0.34, 0.68, 0.68, 0.68, base);
+    at(steelCyl, x, z, yaw, 0.55, 0, 0.33, 0.06, 0.05, 0.06, base);
+    at(steelCyl, x, z, yaw, -0.55, 0, 0.33, 0.06, 0.05, 0.06, base);
+    at(steelBox, x, z, yaw, 0.02, 0, 0.62, 0.8, 0.035, 0.035, base);
+    at(steelBox, x, z, yaw, -0.28, 0, 0.6, 0.035, 0.44, 0.035, base);
+    at(steelBox, x, z, yaw, 0.24, 0, 0.45, 0.035, 0.56, 0.035, base);
+    at(steelBox, x, z, yaw, 0.55, 0, 0.5, 0.035, 0.62, 0.035, base);
+    at(steelBox, x, z, yaw, -0.28, 0, 0.4, 0.035, 0.4, 0.035, base);
+    at(steelBox, x, z, yaw, 0.62, 0, 0.9, 0.035, 0.16, 0.035, base);
+    at(steelBox, x, z, yaw, 0.55, 0, 0.95, 0.04, 0.04, 0.5, base);
+    at(darkBox, x, z, yaw, -0.3, 0, 0.94, 0.3, 0.05, 0.13, base);
+    at(steelBox, x, z, yaw, 0.3, 0, 1.08, 0.04, 0.28, 0.04, base);
+  }
+
+  /* --- bike rack: Sheffield hoops on base plates ----------------------- */
+  function rackAt(x: number, z: number, yaw: number, n = 3, base = WALK_H) {
+    for (let i = 0; i < n; i++) {
+      const u = (i - (n - 1) / 2) * 0.75;
+      at(ironHoop, x, z, yaw, u, 0, 0, 0.9, 1.5, 0.9, base);
+      at(darkBox, x, z, yaw, u, 0, 0, 0.16, 0.03, 0.16, base);
+    }
+    footprint(x, z, ((n - 1) * 0.75) / 2 + 0.45, 0.3, yaw, base + 0.8);
+  }
+
+  /* --- café furniture -------------------------------------------------- */
+  function tableAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(ironCyl, x, z, yaw, 0, 0, 0, 0.5, 0.05, 0.5, base);
+    at(ironCyl, x, z, yaw, 0, 0, 0.05, 0.09, 0.68, 0.09, base);
+    at(slat, x, z, yaw, 0, 0, 0.73, 0.78, 0.05, 0.78, base);
+    solid(x, z, 0.42, 0.42, base + 0.8);
+  }
+  function chairAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(ironBox, x, z, yaw, 0, 0, 0.42, 0.42, 0.05, 0.42, base);
+    for (const u of [-0.17, 0.17]) for (const v of [-0.17, 0.17]) at(ironBox, x, z, yaw, u, v, 0, 0.04, 0.42, 0.04, base);
+    for (const u of [-0.19, 0.19]) at(ironBox, x, z, yaw, u, 0.2, 0.42, 0.04, 0.52, 0.04, base);
+    at(slat, x, z, yaw, 0, 0.2, 0.7, 0.42, 0.11, 0.04, base);
+  }
+  function parasolAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(ironCyl, x, z, yaw, 0, 0, 0, 0.52, 0.06, 0.52, base);
+    at(steelCyl, x, z, yaw, 0, 0, 0.06, 0.07, 2.3, 0.07, base);
+    at(canvasCone, x, z, yaw, 0, 0, 2.14, 2.7, 0.5, 2.7, base);
+    at(brassBox, x, z, yaw, 0, 0, 2.6, 0.07, 0.15, 0.07, base);
+  }
+  function cafeAt(x: number, z: number, yaw: number, n: number, base = WALK_H) {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    for (let i = 0; i < n; i++) {
+      const u = (i - (n - 1) / 2) * 1.7;
+      const tx = x + u * c;
+      const tz = z - u * s;
+      tableAt(tx, tz, yaw, base);
+      chairAt(tx + 0.66 * s, tz + 0.66 * c, yaw + Math.PI, base);
+      chairAt(tx - 0.66 * s, tz - 0.66 * c, yaw, base);
+      if (i % 2 === 0) parasolAt(tx, tz, yaw, base);
+    }
+  }
+
+  /* --- waste: a skip, a lidded dumpster, bags at the kerb -------------- */
+  function skipAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(darkBox, x, z, yaw, 0, 0, 0, 3.5, 0.16, 1.6, base);
+    at(darkBox, x, z, yaw, 0, 0, 0.16, 3.4, 1.05, 1.5, base);
+    at(redBox, x, z, yaw, 0, 0.76, 0.4, 1.4, 0.34, 0.03, base);
+    footprint(x, z, 1.75, 0.8, yaw, base + 1.25);
+  }
+  function dumpsterAt(x: number, z: number, yaw: number, base = WALK_H) {
+    at(darkBox, x, z, yaw, 0, 0, 0.1, 2.0, 1.1, 1.35, base);
+    at(greenBox, x, z, yaw, 0, -0.15, 1.2, 2.05, 0.12, 1.4, base);
+    at(greenBox, x, z, yaw, 0, 0.35, 1.2, 2.05, 0.12, 0.6, base);
+    for (const u of [-0.7, 0.7]) at(rubberRing, x, z, yaw + Math.PI / 2, u, 0.5, 0.1, 0.26, 0.26, 0.26, base);
+    footprint(x, z, 1.05, 0.72, yaw, base + 1.4);
+  }
+  function bagPileAt(x: number, z: number, base = WALK_H) {
+    for (let i = 0; i < 5; i++) {
+      at(plasticBlob, x, z, sR(0, 3), sR(-0.6, 0.6), sR(-0.35, 0.35), i < 3 ? 0.03 : 0.42, sR(0.5, 0.75), sR(0.45, 0.6), sR(0.5, 0.75), base);
+    }
+  }
+
+  /* --- market stall: legs, frame, striped canopy, counter, crates ------- */
+  function stallAt(x: number, z: number, yaw: number, base = WALK_H) {
+    for (const u of [-1.4, 1.4]) for (const v of [-0.9, 0.9]) at(darkCyl, x, z, yaw, u, v, 0, 0.09, 2.2, 0.09, base);
+    at(darkBox, x, z, yaw, 0, 0, 2.15, 3.1, 0.08, 2.1, base);
+    at(canvasBox, x, z, yaw, 0, 0, 2.23, 3.5, 0.06, 2.6, base);
+    at(canvasBox, x, z, yaw, 0, 1.3, 2.0, 3.5, 0.05, 0.4, base);
+    at(darkBox, x, z, yaw, 0, 0, 0, 3.0, 0.9, 1.5, base);
+    at(slat, x, z, yaw, 0, 0.15, 0.9, 3.1, 0.12, 1.5, base);
+    for (let i = 0; i < 4; i++) {
+      at(plasticCyl, x, z, yaw, -1.0 + i * 0.66, -0.4, 1.02, 0.5, 0.3, 0.5, base);
+      at(bloom, x, z, yaw, -1.0 + i * 0.66, -0.4, 1.3, 0.42, 0.24, 0.42, base);
+    }
+    footprint(x, z, 1.7, 1.2, yaw, base + 2.2);
+  }
+
+  /* --- plaza furniture -------------------------------------------------- */
+  function fountainAt(x: number, z: number, base: number) {
+    at(stoneCyl, x, z, 0, 0, 0, 0, 5.6, 0.5, 5.6, base);
+    at(stoneCyl, x, z, 0, 0, 0, 0.5, 4.9, 0.08, 4.9, base);
+    at(waterDisc, x, z, 0, 0, 0, 0.42, 5.0, 1, 5.0, base);
+    at(stoneShaft, x, z, 0, 0, 0, 0.4, 1.5, 2.4, 1.5, base);
+    at(stoneCyl, x, z, 0, 0, 0, 2.8, 2.8, 0.28, 2.8, base);
+    at(stoneBall, x, z, 0, 0, 0, 3.2, 1.0, 1.3, 1.0, base);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      at(stoneCyl, x + Math.cos(a) * 2.7, z + Math.sin(a) * 2.7, 0, 0, 0, 0, 0.45, 0.85, 0.45, base);
+    }
+  }
+  function monumentAt(x: number, z: number, base: number) {
+    at(stoneBox, x, z, 0, 0, 0, 0, 3.2, 0.36, 3.2, base);
+    at(stoneBox, x, z, 0, 0, 0, 0.36, 2.3, 2.8, 2.3, base);
+    at(stoneBox, x, z, 0, 0, 0, 3.16, 2.7, 0.26, 2.7, base);
+    at(stoneBall, x, z, 0, 0, 0, 3.42, 1.0, 1.5, 0.9, base);
+    at(stoneBox, x, z, 0, 0, 0, 4.5, 0.5, 0.7, 0.4, base);
+    at(stoneBall, x, z, 0, 0, 0, 5.1, 0.42, 0.5, 0.42, base);
+  }
+
+  /* --- scaffolding climbing a frontage --------------------------------- */
+  function scaffoldAt(face: { x: number; z: number; yaw: number; len: number }, height: number) {
+    const run = face.len * 1.85;
+    const bays = Math.max(2, Math.round(run / 2.4));
+    const levels = Math.max(2, Math.round(height / 2.6));
+    const deck = levels * 2.6;
+    for (let i = 0; i <= bays; i++) {
+      const u = -run / 2 + (run * i) / bays;
+      for (const v of [0.35, 1.55]) at(steelCyl, face.x, face.z, face.yaw, u, v, 0, 0.09, deck + 1.1, 0.09);
+      at(steelBox, face.x, face.z, face.yaw, u, 0.95, 0, 0.06, 0.06, 1.3);
+    }
+    for (let l = 0; l <= levels; l++) {
+      const h = l * 2.6;
+      for (const v of [0.35, 1.55]) at(steelBox, face.x, face.z, face.yaw, 0, v, h, run, 0.06, 0.06);
+      if (l < levels) {
+        at(slat, face.x, face.z, face.yaw, 0, 0.95, h + 0.1, run, 0.06, 1.2);
+        at(slat, face.x, face.z, face.yaw, 0, 1.62, h + 0.16, run, 0.22, 0.05);
       }
-      /* street trees in the same rhythm */
-      if (srng() < 0.34) {
-        const tx = vertical ? c + s * 8.0 : d + 5;
-        const tz = vertical ? d + 5 : c + s * 8.0;
-        if (!isJunction(vertical ? tz : tx)) {
-          treeSpots.push({ x: tx, z: tz, sc: sR(0.85, 1.15) });
+    }
+    at(netBox, face.x, face.z, face.yaw, 0, 1.68, 0.15, run, deck, 0.03);
+  }
+
+  /* --- what hangs off a frontage --------------------------------------- */
+  function frontFace(bx: number, bz: number, hx: number, hz: number) {
+    const b = blockAt(bx, bz);
+    if (!b) return null;
+    const dx = Math.min(bx - hx - b.x0, b.x1 - (bx + hx));
+    const dz = Math.min(bz - hz - b.z0, b.z1 - (bz + hz));
+    if (dx <= dz && dx < 1.4) {
+      return bx - hx - b.x0 <= b.x1 - (bx + hx)
+        ? { x: bx - hx, z: bz, yaw: -Math.PI / 2, len: hz }
+        : { x: bx + hx, z: bz, yaw: Math.PI / 2, len: hz };
+    }
+    if (dz < 1.4) {
+      return bz - hz - b.z0 <= b.z1 - (bz + hz)
+        ? { x: bx, z: bz - hz, yaw: Math.PI, len: hx }
+        : { x: bx, z: bz + hz, yaw: 0, len: hx };
+    }
+    return null;
+  }
+  type Face = { x: number; z: number; yaw: number; len?: number };
+  function wallLampAt(face: Face, u: number) {
+    at(ironBox, face.x, face.z, face.yaw, u, 0.2, 4.15, 0.06, 0.06, 0.4);
+    at(darkBox, face.x, face.z, face.yaw, u, 0.4, 4.06, 0.28, 0.16, 0.3);
+    at(lampBox, face.x, face.z, face.yaw, u, 0.4, 3.98, 0.22, 0.06, 0.22);
+  }
+  function atmAt(face: Face, u: number) {
+    at(steelBox, face.x, face.z, face.yaw, u, 0.16, 0.1, 1.0, 1.0, 0.32);
+    at(darkBox, face.x, face.z, face.yaw, u, 0.34, 0.85, 0.52, 0.34, 0.04);
+    at(brassBox, face.x, face.z, face.yaw, u, 0.34, 0.5, 0.4, 0.12, 0.04);
+    at(lampBox, face.x, face.z, face.yaw, u, 0.3, 1.14, 1.08, 0.07, 0.4);
+  }
+  function vendingAt(face: Face, u: number) {
+    at(steelBox, face.x, face.z, face.yaw, u, 0.2, 0, 0.95, 1.9, 0.4);
+    at(paneBox, face.x, face.z, face.yaw, u, 0.42, 0.35, 0.7, 1.3, 0.04);
+    at(darkBox, face.x, face.z, face.yaw, u, 0.42, 1.75, 0.8, 0.16, 0.04);
+    at(brassBox, face.x, face.z, face.yaw, u, 0.42, 0.9, 0.3, 0.12, 0.04);
+  }
+
+  /* --- placement: a 13 m rhythm along every kerb ------------------------ *
+   * The pavement band runs from 7.0 m (the kerb) to about 10.4 m (the
+   * building line) off the street centre, so every band below lands on
+   * paving, and each slot gets one piece so nothing overlaps. */
+  const slotLen = 13;
+  const nearLamp = (d: number) => {
+    const m = ((d % 80) + 80) % 80; /* lamp posts stand on multiples of 80 m */
+    return Math.min(m, 80 - m) < 3.4;
+  };
+  const faceRoad = (vertical: boolean, s: number) =>
+    vertical ? (s > 0 ? -Math.PI / 2 : Math.PI / 2) : s > 0 ? Math.PI : 0;
+  const RHYTHM = [
+    "tree", "bin", "tree", "bench", "rack", "tree", "planter", "bin",
+    "hydrant", "tree", "bench", "cabinet", "tree", "sign", "meter", "tree",
+    "bollards", "bench",
+  ];
+  let slot = 0;
+  for (let si = 0; si < STREETS.length; si++) {
+    const c = STREETS[si];
+    for (const vertical of [true, false]) {
+      for (const s of [1, -1]) {
+        const yaw = faceRoad(vertical, s);
+        for (let d = -CITY_R + 26; d <= CITY_R - 26; d += slotLen) {
+          if (isJunction(d) || isJunction(d + slotLen) || nearLamp(d)) {
+            slot++;
+            continue;
+          }
+          const role = RHYTHM[(slot++ + si * 5 + (s > 0 ? 0 : 9)) % RHYTHM.length];
+          const px = (band: number, u = 0) => (vertical ? c + s * band : d + u);
+          const pz = (band: number, u = 0) => (vertical ? d + u : c + s * band);
+          if (role === "tree") {
+            treeSpots.push({ x: px(8.0), z: pz(8.0), sc: sR(0.85, 1.15) });
+          } else if (role === "bin") {
+            binAt(px(8.9), pz(8.9));
+          } else if (role === "bench") {
+            benchAt(px(9.15), pz(9.15), yaw, sR(1.6, 2.05));
+          } else if (role === "rack") {
+            rackAt(px(8.85), pz(8.85), yaw, 2 + (slot % 2));
+            if (srng() < 0.55) bikeAt(px(8.85, -0.8), pz(8.85, -0.8), yaw);
+          } else if (role === "planter") {
+            planterAt(px(9.2), pz(9.2), yaw, sR(1.1, 1.55));
+          } else if (role === "hydrant") {
+            hydrantAt(px(8.35), pz(8.35), yaw);
+          } else if (role === "cabinet") {
+            cabinetAt(px(9.2), pz(9.2), yaw);
+          } else if (role === "sign") {
+            signAt(px(8.4), pz(8.4), vertical ? 0 : Math.PI / 2, srng() < 0.7 ? 0 : 1);
+          } else if (role === "meter") {
+            meterAt(px(8.5), pz(8.5), yaw);
+          } else {
+            for (let i = -1; i <= 1; i++) bollardAt(px(7.75, i * 1.6), pz(7.75, i * 1.6));
+          }
         }
       }
     }
-  };
-  for (const c of STREETS) {
-    furnitureAlong(c, true);
-    furnitureAlong(c, false);
   }
+
   for (const t of treeSpots) {
     const h = 2.6 * t.sc;
     put(treeTrunkBatch, t.x, WALK_H, t.z, 0.34, h, 0.34);
@@ -1139,21 +1686,140 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
     put(pitBatch, t.x, WALK_H + 0.03, t.z, 1.5, 1, 1.5);
   }
 
-  /* bus shelters + stops along the boulevards */
+  /* --- around every junction: bins, hydrants, guard rails, bollards ----- */
+  for (const j of junctionList) {
+    const cx = STREETS[j.ix];
+    const cz = STREETS[j.iz];
+    const corner = (dx: number, dz: number, x: number, z: number) => ({ dx, dz, x, z });
+    const corners = [
+      corner(1, 1, cx + 8.6, cz + 8.6),
+      corner(-1, 1, cx - 8.6, cz + 8.6),
+      corner(1, -1, cx + 8.6, cz - 8.6),
+      corner(-1, -1, cx - 8.6, cz - 8.6),
+    ];
+    binAt(corners[0].x, corners[0].z);
+    hydrantAt(corners[1].x, corners[1].z, 0);
+    binAt(corners[2].x, corners[2].z);
+    /* guard rails down the kerb on the two busier approaches */
+    railingAt(cx + 7.8, cz + 18, Math.PI / 2, 9);
+    railingAt(cx - 7.8, cz + 18, Math.PI / 2, 9);
+    railingAt(cx + 18, cz - 7.8, 0, 9);
+    railingAt(cx + 18, cz + 7.8, 0, 9);
+    for (let i = 0; i < 4; i++) bollardAt(cx + 8.7 + i * 1.5, cz + 8.7);
+    for (let i = 0; i < 4; i++) bollardAt(cx - 8.7 - i * 1.5, cz - 8.7);
+    for (let i = 0; i < 4; i++) bollardAt(cx + 8.7 + i * 1.5, cz - 8.7);
+    /* road-name plate and a litter bin for the corner shops */
+    if ((j.ix + j.iz) % 3 === 0) {
+      plate(signPlateBatch[1], corners[3].x, corners[3].z, Math.PI, 0, 0, 3.1, 1, WALK_H);
+      at(steelCyl, corners[3].x, corners[3].z, Math.PI, 0, 0, 0, 0.09, 3.3, 0.09);
+    }
+  }
+
+  /* --- bus stops: a shelter, a flag and a bin on the boulevards --------- */
   for (const c of [-220, -110, 110, 220]) {
-    for (const d of [-340, -120, 120, 340]) {
+    for (const d of [-350, -130, 130, 350]) {
       for (const vertical of [true, false]) {
-        const s = 1;
-        const x = vertical ? c + s * 8.6 : d;
-        const z = vertical ? d : c + s * 8.6;
-        const yaw = vertical ? Math.PI / 2 : 0;
-        put(shelterRoofBatch, x, WALK_H + 2.6, z, 4.4, 0.16, 1.9, yaw);
-        for (const o of [-1.9, 1.9]) {
-          put(shelterGlassBatch, x + (vertical ? 0 : o), WALK_H + 0.2, z + (vertical ? o : 0), vertical ? 0.08 : 3.2, 2.3, vertical ? 3.2 : 0.08);
+        for (const s of [1, -1]) {
+          const x = vertical ? c + s * 9.1 : d;
+          const z = vertical ? d : c + s * 9.1;
+          shelterAt(x, z, faceRoad(vertical, s));
+          const bx = vertical ? c + s * 8.4 : d + 6.4;
+          const bz = vertical ? d + 6.4 : c + s * 8.4;
+          binAt(bx, bz);
+          if (srng() < 0.5) ticketAt(vertical ? c + s * 8.6 : d - 6.4, vertical ? d - 6.4 : c + s * 8.6, faceRoad(vertical, s));
         }
-        put(benchBatch, x - (vertical ? 0 : 0.6), WALK_H + 0.5, z - (vertical ? 0.6 : 0), vertical ? 0.5 : 3, 0.1, vertical ? 3 : 0.5, yaw);
-        put(poleBatch, x + (vertical ? 0 : 2.6), WALK_H, z + (vertical ? 2.6 : 0), 0.14, 3.4, 0.14);
-        put(signPlateBatch[1], x + (vertical ? 0 : 2.6), WALK_H + 3.6, z + (vertical ? 2.6 : 0), 1, 1, 1, yaw + Math.PI / 2);
+      }
+    }
+  }
+
+  /* --- per block: frontage lamps, ATMs, terraces, kiosks, skips -------- */
+  for (const b of BLOCKS) {
+    const frontages: { face: NonNullable<ReturnType<typeof frontFace>>; top: number }[] = [];
+    for (const bd of b.blds) {
+      if (bd.top < WALK_H + 4) continue;       /* street furniture is not a building */
+      if (bd.hx > 14 && bd.hz > 14) continue;  /* interior masses have no street face */
+      const face = frontFace(bd.x, bd.z, bd.hx - 0.35, bd.hz - 0.35);
+      if (face) frontages.push({ face, top: bd.top });
+    }
+    let i = 0;
+    for (const f of frontages) {
+      const u = ((i % 2) - 0.5) * Math.min(f.face.len * 0.9, 2.6);
+      if (f.top < 34) wallLampAt(f.face, u);
+      const roll = srng();
+      if (roll < 0.05 && f.face.len > 6) atmAt(f.face, u);
+      else if (roll < 0.09 && f.face.len > 6) vendingAt(f.face, u + 1.2);
+      i++;
+    }
+    const far = Math.max(Math.abs(b.cx), Math.abs(b.cz));
+    const hash = (b.i * 7919 + b.j * 104729) % 100;
+    /* cafés terrace onto the south pavement, out of the wind */
+    if (far < 320 && hash % 6 === 0) {
+      cafeAt(b.cx + (hash % 3) * 9 - 9, b.z0 - 0.8, 0, 3 + (hash % 2));
+    }
+    if (hash % 11 === 3) phoneBoxAt(b.x0 + 10.5, b.z1 + 1.2, Math.PI);
+    if (hash % 13 === 5) kioskAt(b.x1 + 1.2, b.z0 + 14, Math.PI / 2);
+    if (hash % 7 === 4) postBoxAt(b.x1 - 9, b.z1 + 1.2, Math.PI);
+    if (hash % 9 === 2) {
+      skipAt(b.x0 - 1.2, b.z0 + 12, Math.PI / 2);
+      bagPileAt(b.x0 - 1.8, b.z0 + 16.5);
+    }
+    if (hash % 19 === 9) dumpsterAt(b.x1 - 12, b.z0 - 1.2, 0);
+    if (hash % 17 === 7) {
+      let big: { x: number; z: number; hx: number; hz: number; top: number } | null = null;
+      for (const bd of b.blds) if (!big || bd.top > big.top) big = bd;
+      if (big && big.top > 14) {
+        const face = frontFace(big.x, big.z, big.hx - 0.35, big.hz - 0.35);
+        if (face && face.len > 6) scaffoldAt(face, Math.min(26, big.top - WALK_H - 2.4));
+      }
+    }
+  }
+
+  /* --- the central plaza: monuments, a fountain, stalls --------------- */
+  for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]] as [number, number][]) {
+    const px = sx * 42;
+    const pz = sy * 42;
+    planterAt(px, pz, 0, 3.4, 0.02);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const bx = px + Math.cos(a) * 3.4;
+      const bz = pz + Math.sin(a) * 3.4;
+      benchAt(bx, bz, a + Math.PI, 1.8, 0.02);
+      binAt(px + Math.cos(a) * 4.6, pz + Math.sin(a) * 4.6, 0.02);
+    }
+  }
+  monumentAt(24, 24, 0.02);
+  fountainAt(-24, 24, 0.02);
+  fountainAt(24, -24, 0.02);
+  monumentAt(-24, -24, 0.02);
+  /* market rows flanking the square, clear of both avenues */
+  for (let i = 0; i < 4; i++) {
+    stallAt(-30 + i * 4.2, 66, 0, 0.02);
+    stallAt(66, -30 + i * 4.2, Math.PI / 2, 0.02);
+  }
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const bx = Math.cos(a) * 31;
+    const bz = Math.sin(a) * 31;
+    if (Math.abs(bx) < 13 || Math.abs(bz) < 13) continue; /* the avenues cross here */
+    benchAt(bx, bz, a + Math.PI, 1.9, 0.02);
+    if (i % 2 === 0) binAt(bx * 1.1, bz * 1.1, 0.02);
+  }
+
+  /* --- banners on the lamp posts --------------------------------------- */
+  for (let si = 0; si < STREETS.length; si += 2) {
+    const c = STREETS[si];
+    for (let d = -480; d <= 480; d += 80) {
+      if (STREETS.some((st) => Math.abs(d - st) < 20)) continue;
+      if ((d / 80 + si) % 3 !== 0) continue;
+      for (const vertical of [true, false]) {
+        for (const s of [1, -1]) {
+          const x = vertical ? c + s * 8.2 : d;
+          const z = vertical ? d : c + s * 8.2;
+          const face = vertical ? 0 : Math.PI / 2;
+          put(ironBox, x, WALK_H + 5.5, z, vertical ? 1.6 : 0.05, 0.05, vertical ? 0.05 : 1.6);
+          put(bannerPlate, x - (vertical ? s * 0.45 : 0), WALK_H + 4.4, z - (vertical ? 0 : s * 0.45), 1, 1, 1, face);
+          put(bannerPlate, x + (vertical ? s * 0.45 : 0), WALK_H + 4.4, z + (vertical ? 0 : s * 0.45), 1, 1, 1, face);
+        }
       }
     }
   }

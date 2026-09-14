@@ -9,7 +9,7 @@ import {
 } from "./vehicles";
 import { parseWheelName, planRig, sanitiseMeasured, type RigPlan, type WheelSample } from "./rigging";
 import {
-  CITY_R, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
+  CITY_R, KERB_APRON, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
 } from "./city";
 import type { GameHandle, GameOptions, Telemetry, Weather } from "./types";
 
@@ -1505,11 +1505,17 @@ export function createGame(opts: GameOptions): GameHandle {
         }
       }
 
-      /* buildings */
+      /* buildings & street furniture */
       if (cityState.on) {
         for (const p of BODYPTS) {
           t1.copy(p).applyQuaternion(q).add(this.pos);
-          const b = blockAt(t1.x, t1.z);
+          /* the pavement apron belongs to the block it reaches back to, so a
+             car up on the kerb still finds the benches and bollards it hits */
+          const b = blockAt(t1.x, t1.z)
+            ?? blockAt(t1.x - KERB_APRON, t1.z)
+            ?? blockAt(t1.x + KERB_APRON, t1.z)
+            ?? blockAt(t1.x, t1.z - KERB_APRON)
+            ?? blockAt(t1.x, t1.z + KERB_APRON);
           if (!b || !b.blds.length) continue;
           for (const bd of b.blds) {
             if (t1.y > bd.top) continue;
