@@ -5,6 +5,9 @@ import {
   randomTrafficKind, VEHICLES,
   type FleetTemplate, type VehicleBuild, type VehicleKind, type VehicleSpec,
 } from "./vehicles";
+import {
+  CITY_R, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
+} from "./city";
 import type { GameHandle, GameOptions, Telemetry, Weather } from "./types";
 
 /* ============================================================================
@@ -237,26 +240,6 @@ export function createGame(opts: GameOptions): GameHandle {
     return m;
   }
 
-  const walkTex = makeTex(128, 128, (x, w, h) => {
-    x.fillStyle = "#9a968c";
-    x.fillRect(0, 0, w, h);
-    for (let i = 0; i < 1200; i++) {
-      const g = (135 + Math.random() * 40) | 0;
-      x.fillStyle = `rgb(${g},${g - 3},${g - 8})`;
-      x.fillRect(Math.random() * w, Math.random() * h, 1.6, 1.6);
-    }
-    x.strokeStyle = "rgba(70,68,62,.5)";
-    x.lineWidth = 2;
-    x.strokeRect(1, 1, w - 2, h - 2);
-    x.beginPath();
-    x.moveTo(w / 2, 0);
-    x.lineTo(w / 2, h);
-    x.moveTo(0, h / 2);
-    x.lineTo(w, h / 2);
-    x.stroke();
-  });
-  walkTex.repeat.set(22, 22);
-
   const paintMat = new THREE.MeshStandardMaterial({
     color: 0xdcd8cc, roughness: 0.9, envMapIntensity: 0.3,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
@@ -309,78 +292,9 @@ export function createGame(opts: GameOptions): GameHandle {
     };
   });
 
-  /* ------------------------------------------------------------ the city */
-  const STREETS = [-550, -440, -330, -220, -110, 110, 220, 330, 440, 550];
-  const ST_ASPHALT = 7;
-  const CITY_R = 610;
-  const WALK_H = 0.12;
-  const PLAZA = 64;
-  const IVS: [number, number][] = [];
-  for (let i = 0; i < STREETS.length - 1; i++) IVS.push([STREETS[i] + 9.5, STREETS[i + 1] - 9.5]);
-
-  const srng = ((s: number) => () => {
-    s |= 0;
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  })(20240613);
-  const sR = (a: number, b: number) => a + srng() * (b - a);
-
-  interface Block {
-    x0: number; x1: number; z0: number; z1: number; cx: number; cz: number;
-    w: number; d: number; type: string;
-    blds: { x: number; z: number; hx: number; hz: number; top: number }[];
-  }
-  const BGRID: (Block | null)[][] = [];
-  const BLOCKS: Block[] = [];
-  for (let i = 0; i < IVS.length; i++) {
-    BGRID.push([]);
-    for (let j = 0; j < IVS.length; j++) {
-      const ix = IVS[i];
-      const iz = IVS[j];
-      if (ix[0] < PLAZA && ix[1] > -PLAZA && iz[0] < PLAZA && iz[1] > -PLAZA) {
-        BGRID[i].push(null);
-        continue;
-      }
-      const cx = (ix[0] + ix[1]) / 2;
-      const cz = (iz[0] + iz[1]) / 2;
-      const m = Math.max(Math.abs(cx), Math.abs(cz));
-      const type = m < 250 ? "tall" : m < 430 ? "mid" : "low";
-      const b: Block = { x0: ix[0], x1: ix[1], z0: iz[0], z1: iz[1], cx, cz, w: ix[1] - ix[0], d: iz[1] - iz[0], type, blds: [] };
-      BGRID[i].push(b);
-      BLOCKS.push(b);
-    }
-  }
-  function ivIdxLock(v: number) {
-    for (let i = 0; i < IVS.length; i++) {
-      const I = IVS[i];
-      if (v >= I[0] && v <= I[1]) return i;
-    }
-    return -1;
-  }
-  function blockAt(x: number, z: number): Block | null {
-    const i = ivIdxLock(x);
-    if (i < 0) return null;
-    const j = ivIdxLock(z);
-    if (j < 0) return null;
-    return BGRID[i][j];
-  }
-  function onStreet(x: number, z: number) {
-    if (Math.abs(x) < 8 && Math.abs(z) > 44 && Math.abs(z) < 850) return true;
-    for (const c of STREETS) {
-      if (Math.abs(x - c) < ST_ASPHALT && Math.abs(z) < CITY_R) return true;
-      if (Math.abs(z - c) < ST_ASPHALT && Math.abs(x) < CITY_R) return true;
-    }
-    return false;
-  }
-  let cityOn = true;
-  function cityH(x: number, z: number) {
-    if (!cityOn) return 0;
-    if (x < -CITY_R || x > CITY_R || z < -CITY_R || z > CITY_R) return 0;
-    const b = blockAt(x, z);
-    return b ? WALK_H : 0;
-  }
+  /* ------------------------------------------------------------- the city */
+  /* The built environment lives in ./city: the grid, blocks, street walls,
+     markings, furniture, traffic signals and skyline are all instanced there. */
 
   let mapField: { x0: number; z0: number; x1: number; z1: number; nx: number; nz: number; h: Float32Array } | null = null;
   function mapH(x: number, z: number): number | null {
@@ -441,10 +355,12 @@ export function createGame(opts: GameOptions): GameHandle {
   }
   function surfaceAt(x: number, z: number) {
     if (mapH(x, z) !== null) return "TARMAC";
-    if (Math.abs(x) < 102 && Math.abs(z) < 102) return "TARMAC";
+    if (Math.abs(x) < 104 && Math.abs(z) < 104) return "TARMAC";
     if (onStreet(x, z)) return "TARMAC";
     const b = blockAt(x, z);
     if (b) return b.type === "park" ? "GRASS" : "TARMAC";
+    if (cityH(x, z) > 0) return "TARMAC";   /* pavement apron / kerb */
+
     if (onRoad(x, z)) return "TARMAC";
     return "GRASS";
   }
@@ -509,7 +425,7 @@ export function createGame(opts: GameOptions): GameHandle {
     scene.add(m);
     return m;
   }
-  flatPlane(204, 204, 0, 0, 0.02, asphaltMat(48, 48));
+  flatPlane(206, 206, 0, 0, 0.02, asphaltMat(48, 48));
   flatPlane(16, 806, 0, 447, 0.045, asphaltMat(2, 100));
   flatPlane(16, 806, 0, -447, 0.043, asphaltMat(2, 100));
 
@@ -623,11 +539,11 @@ export function createGame(opts: GameOptions): GameHandle {
   }
 
   /* ------------------------------------------------ build the blocks/buildings */
-  const parkSpots: [number, number][] = [];
-  const parkedCarSpots: [number, number, number][] = [];
-  const lampPoints: THREE.Vector3[] = [];
-  let lampPoolMat: THREE.MeshStandardMaterial | null = null;
-  const cityRoot = new THREE.Group();
+  const city = buildCity({ aniso: MAX_ANISO });
+  const cityRoot = city.root;
+  const parkSpots = city.parkSpots;
+  const parkedCarSpots = city.parkedCarSpots;
+  const lampPoints = city.lampPoints;
   scene.add(cityRoot);
 
   {
@@ -644,281 +560,6 @@ export function createGame(opts: GameOptions): GameHandle {
       ew.receiveShadow = true;
       cityRoot.add(ew);
     }
-
-    const slabMat = new THREE.MeshStandardMaterial({ map: walkTex, roughness: 0.94, envMapIntensity: 0.3 });
-    const parks: Block[] = [];
-    const lots: Block[] = [];
-    for (const b of BLOCKS) {
-      if (b.type !== "tall" && parks.length < 3 && srng() < 0.10) {
-        b.type = "park";
-        parks.push(b);
-      } else if (b.type !== "tall" && lots.length < 3 && srng() < 0.10) {
-        b.type = "lot";
-        lots.push(b);
-      }
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(b.w, WALK_H, b.d), slabMat);
-      slab.position.set(b.cx, WALK_H / 2, b.cz);
-      slab.receiveShadow = true;
-      cityRoot.add(slab);
-    }
-
-    function facade(style: number) {
-      const c = document.createElement("canvas");
-      c.width = 256;
-      c.height = 256;
-      const x = c.getContext("2d") as CanvasRenderingContext2D;
-      if (style === 0) {
-        x.fillStyle = "#8f8a80";
-        x.fillRect(0, 0, 256, 256);
-        for (let i = 0; i < 900; i++) {
-          const g = (120 + srng() * 50) | 0;
-          x.fillStyle = `rgba(${g},${g - 4},${g - 10},.25)`;
-          x.fillRect(srng() * 256, srng() * 256, 3, 3);
-        }
-        for (let r = 0; r < 6; r++) {
-          for (let col = 0; col < 5; col++) {
-            const wx = 14 + col * 48;
-            const wy = 10 + r * 42;
-            const g = 30 + srng() * 40;
-            x.fillStyle = `rgb(${g},${g + 8},${g + 16})`;
-            x.fillRect(wx, wy, 30, 26);
-            x.fillStyle = "rgba(255,255,255,.13)";
-            x.fillRect(wx, wy, 30, 7);
-            x.fillStyle = "rgba(0,0,0,.25)";
-            x.fillRect(wx, wy + 24, 30, 3);
-          }
-        }
-        x.fillStyle = "rgba(0,0,0,.12)";
-        for (let r = 0; r < 6; r++) x.fillRect(0, 40 + r * 42 - 3, 256, 4);
-      } else {
-        x.fillStyle = "#5e6a76";
-        x.fillRect(0, 0, 256, 256);
-        for (let r = 0; r < 8; r++) {
-          for (let col = 0; col < 6; col++) {
-            const g = 40 + srng() * 55;
-            const b2 = 70 + srng() * 50;
-            x.fillStyle = `rgb(${(g * 0.7) | 0},${(g + 10) | 0},${(b2 + 30) | 0})`;
-            x.fillRect(4 + col * 42, 4 + r * 31, 36, 25);
-            x.fillStyle = "rgba(255,255,255,.10)";
-            x.fillRect(4 + col * 42, 4 + r * 31, 36, 6);
-            x.fillStyle = "rgba(10,14,20,.55)";
-            x.fillRect(4 + col * 42, 4 + r * 31 + 22, 36, 3);
-          }
-        }
-        x.fillStyle = "rgba(0,0,0,.22)";
-        for (let r = 0; r < 8; r++) x.fillRect(0, 2 + r * 31, 256, 2);
-      }
-      const t = new THREE.CanvasTexture(c);
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.anisotropy = MAX_ANISO;
-      return t;
-    }
-    const concT = facade(0);
-    const glassT = facade(1);
-    const roofMat = new THREE.MeshStandardMaterial({ color: 0x4a4c4e, roughness: 0.95, envMapIntensity: 0.25 });
-    const bldMats = (style: number, rx: number, ry: number) => {
-      const t = (style ? glassT : concT).clone();
-      t.needsUpdate = true;
-      t.repeat.set(rx, ry);
-      const side = new THREE.MeshStandardMaterial({
-        map: t, roughness: style ? 0.32 : 0.85, metalness: style ? 0.5 : 0.05, envMapIntensity: style ? 0.9 : 0.35,
-      });
-      return [side, side, roofMat, roofMat, side, side];
-    };
-    const classes: Record<string, { mats: THREE.Material[]; list: [number, number, number, number, number][] }> = {
-      tall: { mats: bldMats(1, 5, 22), list: [] },
-      mid: { mats: bldMats(0, 5, 9), list: [] },
-      low: { mats: bldMats(0, 4, 4), list: [] },
-    };
-    for (const b of BLOCKS) {
-      if (b.type === "park" || b.type === "lot") continue;
-      const m = 5;
-      const ux = (b.w - 2 * m - 10) / 3;
-      const uz = (b.d - 2 * m - 10) / 3;
-      for (let i = 0; i < 3; i++) {
-        for (let j = 0; j < 3; j++) {
-          if (srng() < 0.18) continue;
-          const fw = Math.min(ux * (0.68 + srng() * 0.3), 26);
-          const fd = Math.min(uz * (0.68 + srng() * 0.3), 26);
-          const cx = b.x0 + m + 5 + ux * (i + 0.5);
-          const cz = b.z0 + m + 5 + uz * (j + 0.5);
-          if (Math.hypot(cx - ramps[0].x, cz - ramps[0].z) < 34) continue;
-          if (Math.hypot(cx - ramps[1].x, cz - ramps[1].z) < 34) continue;
-          let h: number;
-          if (b.type === "tall") h = srng() < 0.2 ? sR(90, 130) : sR(40, 80);
-          else if (b.type === "mid") h = sR(16, 44);
-          else h = sR(8, 20);
-          classes[b.type].list.push([cx, cz, fw, fd, h]);
-          b.blds.push({ x: cx, z: cz, hx: fw / 2 + 0.3, hz: fd / 2 + 0.3, top: WALK_H + h });
-        }
-      }
-    }
-    const unit = new THREE.BoxGeometry(1, 1, 1);
-    unit.translate(0, 0.5, 0);
-    for (const k of Object.keys(classes)) {
-      const cl = classes[k];
-      if (!cl.list.length) continue;
-      const im = new THREE.InstancedMesh(unit, cl.mats, cl.list.length);
-      const M = new THREE.Matrix4();
-      const P = V3();
-      const Q = new THREE.Quaternion();
-      const S = V3();
-      cl.list.forEach((a, i) => {
-        P.set(a[0], WALK_H, a[1]);
-        S.set(a[2], a[4], a[3]);
-        M.compose(P, Q, S);
-        im.setMatrixAt(i, M);
-      });
-      im.castShadow = true;
-      im.receiveShadow = true;
-      cityRoot.add(im);
-    }
-
-    /* parks */
-    for (const b of parks) {
-      const gp = new THREE.Mesh(new THREE.PlaneGeometry(b.w - 12, b.d - 12), new THREE.MeshStandardMaterial({
-        map: grassTex, roughness: 1, envMapIntensity: 0.3,
-      }));
-      gp.rotation.x = -Math.PI / 2;
-      gp.position.set(b.cx, WALK_H + 0.01, b.cz);
-      gp.receiveShadow = true;
-      cityRoot.add(gp);
-      for (let k = 0; k < 12; k++) parkSpots.push([b.cx + sR(-34, 34), b.cz + sR(-34, 34)]);
-    }
-
-    /* parking lots */
-    const lineGeo = new THREE.PlaneGeometry(0.12, 5);
-    for (const b of lots) {
-      const lp = new THREE.Mesh(new THREE.PlaneGeometry(b.w - 12, b.d - 12), asphaltMat(10, 10));
-      lp.rotation.x = -Math.PI / 2;
-      lp.position.set(b.cx, WALK_H + 0.01, b.cz);
-      lp.receiveShadow = true;
-      cityRoot.add(lp);
-      const nl = new THREE.InstancedMesh(lineGeo, paintMat, 44);
-      const M = new THREE.Matrix4();
-      const Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-      const S = V3(1, 1, 1);
-      const P = V3();
-      let n = 0;
-      for (const rz of [-13, 13]) {
-        for (let k = -5; k <= 5; k++) {
-          P.set(b.cx + k * 3, WALK_H + 0.025, b.cz + rz);
-          M.compose(P, Q, S);
-          if (n < 44) nl.setMatrixAt(n++, M);
-          if (Math.abs(k) < 5 && srng() < 0.75) parkedCarSpots.push([b.cx + k * 3, b.cz + rz + (rz < 0 ? -2.6 : 2.6), 0]);
-        }
-      }
-      nl.count = n;
-      nl.instanceMatrix.needsUpdate = true;
-      cityRoot.add(nl);
-    }
-
-    /* street parking spots */
-    const near = (v: number) => STREETS.some((c) => Math.abs(v - c) < 16);
-    for (const c of STREETS) {
-      for (let z = -592; z <= 592; z += 30) {
-        if (near(z) || srng() < 0.45) continue;
-        const side = srng() < 0.5 ? 1 : -1;
-        parkedCarSpots.push([c + side * 5.2, z, side > 0 ? Math.PI : 0]);
-      }
-      for (let x = -592; x <= 592; x += 30) {
-        if (near(x) || srng() < 0.45) continue;
-        const side = srng() < 0.5 ? 1 : -1;
-        parkedCarSpots.push([x, c + side * 5.2, side > 0 ? -Math.PI / 2 : Math.PI / 2]);
-      }
-    }
-
-    /* lane dashes */
-    const dashG = new THREE.PlaneGeometry(0.16, 2.6);
-    const dashList: [number, number, number][] = [];
-    for (const c of STREETS) {
-      for (let z = -590; z <= 590; z += 8) {
-        if (STREETS.some((e) => Math.abs(z - e) < 13)) continue;
-        dashList.push([c, z, 0]);
-      }
-      for (let x = -590; x <= 590; x += 8) {
-        if (STREETS.some((e) => Math.abs(x - e) < 13)) continue;
-        dashList.push([x, c, Math.PI / 2]);
-      }
-    }
-    const dashes = new THREE.InstancedMesh(dashG, paintMat, dashList.length);
-    const QF = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-    const QY = new THREE.Quaternion();
-    const M = new THREE.Matrix4();
-    const S = V3(1, 1, 1);
-    const P = V3();
-    const Q = new THREE.Quaternion();
-    dashList.forEach((d, i) => {
-      QY.setFromAxisAngle(V3(0, 1, 0), d[2]);
-      Q.copy(QY).multiply(QF);
-      P.set(d[0], 0.05, d[1]);
-      M.compose(P, Q, S);
-      dashes.setMatrixAt(i, M);
-    });
-    dashes.instanceMatrix.needsUpdate = true;
-    cityRoot.add(dashes);
-
-    /* crossings */
-    const zebG = new THREE.PlaneGeometry(0.55, 3.0);
-    const zeb: [number, number, number][] = [];
-    for (const cx of STREETS) {
-      for (const cz of STREETS) {
-        for (const s of [1, -1]) {
-          for (let k = -3; k <= 3; k++) zeb.push([cx + k * 1.5, cz + s * 10.8, 0]);
-          for (let k = -3; k <= 3; k++) zeb.push([cx + s * 10.8, cz + k * 1.5, Math.PI / 2]);
-        }
-      }
-    }
-    const zebs = new THREE.InstancedMesh(zebG, paintMat, zeb.length);
-    zeb.forEach((d, i) => {
-      QY.setFromAxisAngle(V3(0, 1, 0), d[2]);
-      Q.copy(QY).multiply(QF);
-      P.set(d[0], 0.052, d[1]);
-      M.compose(P, Q, S);
-      zebs.setMatrixAt(i, M);
-    });
-    zebs.instanceMatrix.needsUpdate = true;
-    cityRoot.add(zebs);
-
-    /* street lamps */
-    const poleG = new THREE.CylinderGeometry(0.06, 0.1, 7, 8);
-    poleG.translate(0, 3.5, 0);
-    const armG = new THREE.BoxGeometry(0.08, 0.08, 1.7);
-    armG.translate(0, 6.95, 0.85);
-    const headG = new THREE.BoxGeometry(0.32, 0.12, 0.75);
-    headG.translate(0, 6.9, 1.6);
-    const lampMat = new THREE.MeshStandardMaterial({
-      color: 0xd9d4c2, emissive: 0xfff0c8, emissiveIntensity: 0.05, roughness: 0.6,
-    });
-    const lamps: [number, number, number][] = [];
-    for (const c of STREETS) {
-      for (let z = -540; z <= 540; z += 80) {
-        if (STREETS.some((e) => Math.abs(z - e) < 18)) continue;
-        for (const s of [1, -1]) lamps.push([c + s * 8.3, z, s > 0 ? -Math.PI / 2 : Math.PI / 2]);
-      }
-      for (let x = -540; x <= 540; x += 80) {
-        if (STREETS.some((e) => Math.abs(x - e) < 18)) continue;
-        for (const s of [1, -1]) lamps.push([x, c + s * 8.3, s > 0 ? Math.PI : 0]);
-      }
-    }
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x3c4045, metalness: 0.6, roughness: 0.5, envMapIntensity: 0.5 });
-    const poles = new THREE.InstancedMesh(poleG, poleMat, lamps.length);
-    const arms = new THREE.InstancedMesh(armG, poleMat, lamps.length);
-    const heads = new THREE.InstancedMesh(headG, lampMat, lamps.length);
-    lamps.forEach((L, i) => {
-      QY.setFromAxisAngle(V3(0, 1, 0), L[2]);
-      P.set(L[0], WALK_H, L[1]);
-      M.compose(P, QY, S);
-      poles.setMatrixAt(i, M);
-      arms.setMatrixAt(i, M);
-      heads.setMatrixAt(i, M);
-      /* the lamp head hangs 1.6 m in front of the pole at 6.9 m */
-      lampPoints.push(V3(L[0] + Math.sin(L[2]) * 1.6, 6.9, L[1] + Math.cos(L[2]) * 1.6));
-    });
-    poles.castShadow = true;
-    cityRoot.add(poles, arms, heads);
-    lampPoolMat = lampMat;
   }
 
   /* skid pad markings */
@@ -1214,11 +855,18 @@ export function createGame(opts: GameOptions): GameHandle {
 
   let cityCarsDone = false;
   function populateCityCars() {
-    if (!cityOn) return;
+    if (!cityState.on) return;
     if (!cityCarsDone) {
       cityCarsDone = true;
       let n = 0;
-      for (const s of parkedCarSpots) {
+      const order = parkedCarSpots.slice();
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        const tmp = order[i];
+        order[i] = order[j];
+        order[j] = tmp;
+      }
+      for (const s of order) {
         if (n >= PARKED_MAX) break;
         if (Math.random() < 0.35) continue;
         const kind = randomTrafficKind();
@@ -1850,7 +1498,7 @@ export function createGame(opts: GameOptions): GameHandle {
       }
 
       /* buildings */
-      if (cityOn) {
+      if (cityState.on) {
         for (const p of BODYPTS) {
           t1.copy(p).applyQuaternion(q).add(this.pos);
           const b = blockAt(t1.x, t1.z);
@@ -1887,7 +1535,7 @@ export function createGame(opts: GameOptions): GameHandle {
       }
 
       /* traffic & parked cars */
-      if (cityOn && spd > 0.4) {
+      if (cityState.on && spd > 0.4) {
         for (const tc of traffic) {
           if (Math.abs(tc.x - this.pos.x) > 12 || Math.abs(tc.z - this.pos.z) > 12) continue;
           if (this.carOBB(tc.x, tc.z, tc.yaw, tc)) tc.stopT = 1.6;
@@ -2243,7 +1891,7 @@ export function createGame(opts: GameOptions): GameHandle {
     fog.far = far * (0.6 + 0.4 * day);
     renderer.toneMappingExposure = 0.95 + 0.35 * night;
 
-    if (lampPoolMat) lampPoolMat.emissiveIntensity = 0.05 + 1.9 * night * (1 - 0.25 * overcast);
+    /* lamp, facade and signal emissives are driven by city.update() */
 
     /* wet tarmac */
     for (const m of asphaltMats) {
@@ -2720,11 +2368,12 @@ export function createGame(opts: GameOptions): GameHandle {
   let raf = 0;
 
   function updateTraffic(dt: number) {
-    if (!traffic.length || !cityOn) return;
+    if (!traffic.length || !cityState.on) return;
     const px = car.pos.x;
     const pz = car.pos.z;
     for (const t of traffic) {
       let block = false;
+      if (city.lightBlocks(t.x, t.z, t.axis, t.dir, t.speed)) block = true;
       {
         const dx = px - t.x;
         const dz = pz - t.z;
@@ -2849,7 +2498,7 @@ export function createGame(opts: GameOptions): GameHandle {
         c.cw.multiplyScalar(Math.max(0, 1 - 4 * dt));
         if (c.v.lengthSq() < 0.3) c.q.slerp(IDENT, Math.min(1, dt * 2.5));
       }
-      if (cityOn) {
+      if (cityState.on) {
         const b = blockAt(c.p.x, c.p.z);
         if (b) {
           for (const bd of b.blds) {
@@ -3031,7 +2680,8 @@ export function createGame(opts: GameOptions): GameHandle {
     framePrevVel.copy(car.vel);
 
     if (!paused) {
-      if (cityOn) updateTraffic(dt);
+      city.update(dt, envState.night, envState.wet);
+      if (cityState.on) updateTraffic(dt);
       acc += dt;
       let n = 0;
       while (acc >= STEP && n++ < 12) {
