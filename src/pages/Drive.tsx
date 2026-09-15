@@ -193,7 +193,8 @@ export default function Drive() {
   useEffect(() => {
     if (!booted) return;
     const game = gameRef.current;
-    const target = carById(carId);
+    /* imported cars live in the garage too: look in the whole list */
+    const target = carFromAll(carId, importedCars ?? []) ?? carById(DEFAULT_CAR_ID);
     if (!game || !target.url || loadedCarRef.current === carId) return;
     loadedCarRef.current = carId;
     let live = true;
@@ -216,14 +217,17 @@ export default function Drive() {
     return () => {
       live = false;
     };
-  }, [booted, carId]);
+  }, [booted, carId, importedCars]);
 
-  const chooseCar = useCallback((id: string) => {
-    const target = carById(id);
-    /* the fallback body of the right class shows instantly */
-    gameRef.current?.setVehicle(carKind(target));
-    setCarId(id);
-  }, []);
+  const chooseCar = useCallback(
+    (id: string) => {
+      const target = carFromAll(id, importedCars ?? []) ?? carById(DEFAULT_CAR_ID);
+      /* the fallback body of the right class shows instantly */
+      gameRef.current?.setVehicle(carKind(target));
+      setCarId(id);
+    },
+    [importedCars],
+  );
 
   const start = useCallback(() => {
     setStarted(true);

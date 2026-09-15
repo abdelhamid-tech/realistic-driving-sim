@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { motion, useInView } from "framer-motion";
 import { useQuery } from "convex/react";
@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { PAINT_COLORS, VEHICLES, VEHICLE_ORDER } from "@/game/catalog";
-import { CAR_LIBRARY, formatBytes } from "@/game/carmodels";
+import { allCars, formatBytes, type ImportedCar } from "@/game/carmodels";
 import {
   CarFront, CloudRain, Compass, Download, Gauge, Moon, Route, Snowflake, Sparkles,
   Thermometer, Timer, Trophy, Upload, Wind, Zap,
@@ -171,6 +171,10 @@ const FEATURES = [
 ];
 
 export default function Landing() {
+  /* the fleet everyone sees: the built-in library plus the owner's imports */
+  const importedCars = useQuery(api.cars.list) as ImportedCar[] | undefined;
+  const CAR_LIBRARY = useMemo(() => allCars(importedCars ?? []), [importedCars]);
+
   const { isAuthenticated, user } = useAuth();
   const leaderboard = useQuery(api.driverStats.leaderboard);
 
