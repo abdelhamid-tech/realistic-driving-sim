@@ -8,8 +8,18 @@ import { ConvexReactClient } from "convex/react";
 import { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { initCrazyGames } from "@/lib/crazygames";
 import "./index.css";
 import "./types/global.d.ts";
+
+/* Start the CrazyGames SDK before React renders: the platform measures the
+ * initial download from page load to the first gameplay start event, and it
+ * preloads the player's saved game data while initialising. On any domain the
+ * SDK does not serve this resolves to "disabled" and the game is unchanged. */
+void initCrazyGames();
+
+/* the static splash painted by index.html; the app replaces it */
+document.getElementById("boot")?.remove();
 
 // Lazy load route components for better code splitting
 const Drive = lazy(() => import("./pages/Drive.tsx"));

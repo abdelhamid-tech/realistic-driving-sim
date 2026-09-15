@@ -38,7 +38,10 @@ export interface CarEntry {
   name: string;
   /** one-line class, e.g. "Mid-engine V8 coupé" */
   klass: string;
-  /** "/models/your-car.glb" (recommended) or a CORS-enabled https url */
+  /**
+   * "/models/your-car.glb" for anything shipped in this bundle; the owner's
+   * imported cars are the only entries that use an absolute storage URL.
+   */
   url: string;
   /** content length of the file, for the "1.7 MB" hint on the card */
   bytes: number;
@@ -80,7 +83,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "458 ITALIA",
     klass: "Mid-engine V8 coupé",
     detail: "Rigged wheels · loads in about a second",
-    url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/ferrari.glb",
+    url: "/models/ferrari-458.glb",
     bytes: 1681572,
     author: "vicent091036 · shipped with three.js",
     license: "CC BY 4.0",
@@ -98,7 +101,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "KHR CONCEPT",
     klass: "Concept car",
     detail: "Full interior · 445 parts · the heavy one",
-    url: "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+    url: "/models/khr-concept.glb",
     bytes: 11778688,
     author: "Khronos glTF Sample Assets · source asset by Unity Fan",
     license: "CC0 / public domain",
@@ -119,7 +122,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "STREET SEDAN",
     klass: "Lowered sedan",
     detail: "Light model · the one that always loads",
-    url: "https://assets.babylonjs.com/meshes/car.glb",
+    url: "/models/street-sedan.glb",
     bytes: 167272,
     author: "Babylon.js sample assets",
     license: "free sample asset",

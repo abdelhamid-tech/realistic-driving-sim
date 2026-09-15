@@ -2054,6 +2054,9 @@ export function createGame(opts: GameOptions): GameHandle {
   let AC: AudioContext | null = null;
   let AN: AudioBuffer | null = null;
   let masterG: GainNode | null = null;
+  /* Platform hard mute (CrazyGames settings.muteAudio): wins over the in-game
+     volume and over the M key. */
+  let hardMute = false;
   let eng: { o1: OscillatorNode; o2: OscillatorNode; og: GainNode; of: BiquadFilterNode } | null = null;
   let windN: { wg: GainNode; wf: BiquadFilterNode } | null = null;
   let skidN: { sg: GainNode; sf: BiquadFilterNode } | null = null;
@@ -2152,7 +2155,7 @@ export function createGame(opts: GameOptions): GameHandle {
   function audioUpdate() {
     if (!AC || !eng || !windN || !skidN || !masterG) return;
     const t = AC.currentTime;
-    const mute = muted || paused;
+    const mute = muted || paused || hardMute;
     const rn = car.rpm / 8000;
     eng.o1.frequency.setTargetAtTime(38 + rn * 205, t, 0.04);
     eng.o2.frequency.setTargetAtTime(19 + rn * 102, t, 0.04);
@@ -2161,7 +2164,7 @@ export function createGame(opts: GameOptions): GameHandle {
     windN.wg.gain.setTargetAtTime(mute ? 0 : Math.min(0.16, car.spd * 0.0032), t, 0.15);
     skidN.sg.gain.setTargetAtTime(mute ? 0 : skidLevel * 0.16, t, 0.06);
     skidN.sf.frequency.setTargetAtTime(800 + car.spd * 14, t, 0.1);
-    masterG.gain.setTargetAtTime(muted ? 0 : 0.5, t, 0.1);
+    masterG.gain.setTargetAtTime(muted || hardMute ? 0 : 0.5, t, 0.1);
   }
 
   /* ----------------------------------------------------------- environment */
@@ -2414,6 +2417,8 @@ export function createGame(opts: GameOptions): GameHandle {
   let gLonS = 0;
   let driftDeg = 0;
   let driftPts = 0;
+  /* Rewarded-ad bonus: 1 normally, 2 while a player is on a boost. */
+  let scoreMultiplier = 1;
   let lastSurf = "TARMAC";
 
   function drawTach() {
@@ -3327,7 +3332,8 @@ export function createGame(opts: GameOptions): GameHandle {
     const vf = car.vel.dot(fwd);
     driftDeg = spd > 4 ? Math.abs(Math.atan2(vl, Math.abs(vf))) * 57.3 : 0;
     for (let i = 0; i < 4; i++) if (car.wc[i].contact) lastSurf = car.wc[i].surf;
-    if (driftDeg > 12 && spd > 6) driftPts += driftDeg * dt * 8 * (1 + driftDeg / 40);
+    if (driftDeg > 12 && spd > 6)
+      driftPts += driftDeg * dt * 8 * (1 + driftDeg / 40) * scoreMultiplier;
   }
 
   function updateRain(dt: number) {
@@ -3820,6 +3826,14 @@ export function createGame(opts: GameOptions): GameHandle {
       volume = clamp(v, 0, 1);
       muted = volume <= 0.01;
       if (masterG && AC) masterG.gain.setTargetAtTime(volume, AC.currentTime, 0.1);
+    },
+    /* The platform setting takes priority over anything set in the game. */
+    setAudioMuted(on: boolean) {
+      hardMute = on;
+      if (masterG && AC) masterG.gain.setTargetAtTime(on ? 0 : 0.5, AC.currentTime, 0.1);
+    },
+    setScoreMultiplier(m: number) {
+      scoreMultiplier = clamp(m, 1, 8);
     },
     sessionStats() {
       return {

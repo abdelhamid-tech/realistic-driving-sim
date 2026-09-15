@@ -54,6 +54,23 @@ async function reportErrorToVly(errorData: {
   }
 }
 
+/**
+ * Where the editor shortcut is allowed to appear.
+ *
+ * This build is developed and previewed on the builder's own domains; that is
+ * where "Open editor" is useful. A game host is somewhere else entirely —
+ * CrazyGames serves the build from its own domain — and the platform forbids
+ * linking out to another platform, so there the link is simply not rendered.
+ * The error report to Vly is untouched either way: only the link is hidden.
+ */
+const onBuildHost =
+  typeof window === "undefined"
+    ? false
+    : /(^|\.)vly\.sh$/.test(window.location.hostname) ||
+      /(^|\.)freebuff\.com$/.test(window.location.hostname) ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
 function ErrorDialog({
   error,
   setError,
@@ -72,8 +89,7 @@ function ErrorDialog({
         <DialogHeader>
           <DialogTitle>Runtime Error</DialogTitle>
         </DialogHeader>
-        A runtime error occurred. Open the vly editor to automatically debug the
-        error.
+        A runtime error occurred. Reload the page to start again.
         <div className="mt-4">
           <Collapsible>
             <CollapsibleTrigger>
@@ -89,7 +105,15 @@ function ErrorDialog({
           </Collapsible>
         </div>
         <DialogFooter>
+          {/*
+            * The editor shortcut only makes sense where the editor exists. On a
+            * game host — CrazyGames serves the build from its own domain — a
+            * link out to the build platform would be exactly the kind of
+            * cross-promotion the platform forbids, so it is not rendered there.
+            * The error report to Vly is untouched: only this link is hidden.
+            */}
           <a
+            hidden={!onBuildHost}
             href={`https://freebuff.com/project/${import.meta.env.VITE_VLY_APP_ID}`}
             target="_blank"
           >

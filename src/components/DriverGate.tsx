@@ -2,16 +2,24 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDriver } from "@/hooks/use-driver";
+import { useCrazyGames } from "@/hooks/use-crazygames";
 
 /**
  * THE DOOR — one field, no account.
  *
- * Replaces sign up / sign in entirely: type a pseudonym, press enter, you are
- * in the garage. Nothing is verified, nothing is sent anywhere, and the name
- * is remembered in this browser so the next visit goes straight through.
+ * Two ways through it:
+ *
+ *  - On CrazyGames with a logged-in player, the platform username is the name
+ *    and this screen never appears: the player lands straight in the garage,
+ *    which is what the platform asks for ("automatic login for CrazyGames
+ *    users", and no extra click before gameplay).
+ *  - Everywhere else — and for CrazyGames guests — type a pseudonym, press
+ *    enter, you are in. Nothing is verified, nothing is sent anywhere, and the
+ *    name is remembered so the next visit goes straight through.
  */
 export function DriverGate({ children }: { children: React.ReactNode }) {
-  const { name, setName } = useDriver();
+  const { name, setName, platform } = useDriver();
+  const cg = useCrazyGames();
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -19,7 +27,28 @@ export function DriverGate({ children }: { children: React.ReactNode }) {
     if (!name) inputRef.current?.focus();
   }, [name]);
 
+  /* the SDK is still booting and may hand us a username: do not flash a form
+     the player is about to be waved through */
+  const deciding = !cg.ready;
+
+  useEffect(() => {
+    if (!deciding && !name) inputRef.current?.focus();
+  }, [deciding, name]);
+
   if (name) return <>{children}</>;
+
+  if (deciding) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-carbon text-chalk">
+        <div className="text-center">
+          <div className="mx-auto mb-3 size-7 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+          <div className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
+            CHECKING YOUR CRAZYGAMES ACCOUNT…
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const ready = draft.trim().length >= 2;
 
@@ -58,10 +87,15 @@ export function DriverGate({ children }: { children: React.ReactNode }) {
           className="mt-6"
           onSubmit={(e) => {
             e.preventDefault();
-            if (ready) setName(draft);
+            /* `true` marks this as the player's own click: on CrazyGames it is
+               the one interaction the platform allows before gameplay, so the
+               garage is skipped and the car starts rolling. */
+            if (ready) setName(draft, true);
           }}
         >
-          <label className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">PSEUDONYM</label>
+          <label className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+            PSEUDONYM
+          </label>
           <input
             ref={inputRef}
             value={draft}
@@ -85,7 +119,8 @@ export function DriverGate({ children }: { children: React.ReactNode }) {
         </form>
 
         <div className="mt-6 border-t border-white/10 pt-3 font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
-          SAVED IN THIS BROWSER ONLY · CLEAR IT FROM THE GARAGE TO CHANGE NAME
+          THE NAME IS KEPT TO SHOW IT TO THE DRIVERS IN YOUR ROOM, AND NOTHING ELSE IS COLLECTED.
+          {platform?.username ? ` CRAZYGAMES ACCOUNT: ${platform.username.toUpperCase()}` : ""}
         </div>
       </div>
     </div>

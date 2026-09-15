@@ -9,18 +9,48 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { createGame } from "@/game/engine";
 import {
-  CAR_LIBRARY, DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes,
+  DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes,
   isImportedCarId, type CarEntry, type ImportedCar,
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
-import { useDriver } from "@/hooks/use-driver";
+import { consumeTypedName, useDriver } from "@/hooks/use-driver";
 import { CAMERA_LABEL, type GameHandle, type RemoteDriver, type Telemetry } from "@/game/types";
+import { completion, markCarDriven, markWorldVisited } from "@/game/progress";
+import { useCrazyGames } from "@/hooks/use-crazygames";
+import type { CgUser } from "@/lib/crazygames";
+import {
+  clearBanner,
+  gameplayStart,
+  gameplayStop,
+  getInviteParam,
+  happyTime,
+  hasAdblock,
+  isInstantMultiplayer,
+  leftRoom,
+  loadingStart,
+  loadingStop,
+  onJoinRoom,
+  whenReady,
+  reportProgress,
+  requestMidgameAd,
+  requestRewardedAd,
+  setGameContext,
+  showBanner,
+  updateRoom,
+} from "@/lib/crazygames";
 import {
   PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
-import { Check, Download, Gauge, Link2, Loader2, Settings2, Users, X, Zap } from "lucide-react";
+import { Check, Download, Gauge, Link2, Loader2, PlayCircle, Settings2, Users, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
+
+/** Drift scores worth celebrating. Deliberately rare — see happyTime(). */
+const MILESTONES = [10000, 40000, 100000];
+/** The rewarded-ad boost: double drift points for ten minutes. */
+const BOOST_MS = 10 * 60 * 1000;
+/** The banner container on the menu screen. */
+const BANNER_ID = "riverbend-menu-banner";
 
 /** The public room everybody lands in unless an invite says otherwise. */
 const DEFAULT_ROOM = "apex-city";
@@ -110,6 +140,8 @@ export default function Drive() {
   const loadedWorldRef = useRef<string | null>(null);
 
   const { name: driver, forget: forgetDriver } = useDriver();
+  /* the platform this build is running on: CrazyGames, localhost, or nowhere */
+  const cg = useCrazyGames();
   const publish = useMutation(api.multiplayer.publish);
   const leaveRoom = useMutation(api.multiplayer.leave);
   const peers = useQuery(api.multiplayer.peers, netOn ? { room } : "skip");
@@ -485,6 +517,222 @@ export default function Drive() {
     startRef.current = start;
   }, [start]);
 
+  /* ============================================================== the platform
+   *  Everything CrazyGames asks for, in one place. On any other domain every
+   *  call below is a no-op (see src/lib/crazygames.ts) and the game behaves
+   *  exactly as it does on the owner's own host. Adblockers too: nothing here
+   *  can throw, so the game always keeps working. */
+
+  /* The platform times the load from page load to the first gameplay start.
+     This is what the "initial download size" is measured against, so the stop
+     waits until the world is really built — not merely the moment the menu
+     appears while a map is still streaming in. */
+  useEffect(() => {
+    void whenReady().then(loadingStart);
+    return () => loadingStop();
+  }, []);
+  useEffect(() => {
+    if (booted && !worldLoad) loadingStop();
+  }, [booted, worldLoad]);
+
+  /* Play / not playing. The platform uses this to know when the player is
+     really on the road; menus, pauses and the garage are all a stop. */
+  const playing = started && !paused && panel === "none";
+  useEffect(() => {
+    if (!booted) return;
+    if (playing) gameplayStart();
+    else gameplayStop();
+  }, [booted, playing]);
+
+  /* Platform settings take priority over anything set in the game: the hard
+     mute wins over the volume slider and over the M key, and chat — which this
+     game does not have — is simply not built. */
+  useEffect(() => {
+    if (!booted) return;
+    gameRef.current?.setAudioMuted(cg.settings.muteAudio);
+  }, [booted, cg.settings.muteAudio]);
+
+  /* Adblockers are required not to break the game; detect, never gate. */
+  useEffect(() => {
+    void hasAdblock().then((blocked) => {
+      if (blocked) console.info("[crazygames] adblocker present; the game runs unchanged");
+    });
+  }, []);
+
+  /* Room data. This is what makes a player joinable from the CrazyGames UI
+     (friends drawer, invite button, multiplayer landing page), and it is
+     reported from the moment the world exists — so a friend can join while the
+     player is still choosing a car in the garage. */
+  useEffect(() => {
+    if (!booted || !netOn) {
+      leftRoom();
+      return;
+    }
+    updateRoom({ roomId: room, isJoinable: true, inviteParams: { room } });
+    return () => leftRoom();
+  }, [booted, netOn, room]);
+
+  /* An invitation carries the room code. Off-platform that is the
+     /drive?room=CODE link; on CrazyGames it arrives as an invite param. */
+  useEffect(() => {
+    if (!cg.ready) return;
+    const invited = getInviteParam("room");
+    if (!invited) return;
+    const next = cleanRoom(invited);
+    setRoom(next);
+    setRoomDraft(next);
+    setRoomInUrl(next);
+  }, [cg.ready]);
+
+  /* A friend joining while the player is already in the game must not need a
+     page reload. */
+  useEffect(
+    () =>
+      onJoinRoom((joined) => {
+        const next = cleanRoom(joined.inviteParams?.room ?? joined.roomId);
+        setRoom(next);
+        setRoomDraft(next);
+        setRoomInUrl(next);
+        toast.success("Joined room " + next.toUpperCase());
+      }),
+    [],
+  );
+
+  /* One click, and the platform allows exactly one. Typing a pseudonym at the
+     door IS the click: on CrazyGames the engine starts rolling with it, and the
+     garage stays one tap away in the HUD. Off-platform the garage keeps its
+     START ENGINE step, exactly as before. */
+  useEffect(() => {
+    if (!booted || !cg.active) return;
+    if (!consumeTypedName()) return;
+    start();
+  }, [booted, cg.active, start]);
+
+  /* Instant multiplayer: launched from the CrazyGames multiplayer page, the
+     player lands directly on the road in a brand-new joinable room — no menu
+     to click through, and their friends can join immediately. */
+  const instantRef = useRef(false);
+  useEffect(() => {
+    if (!booted || !cg.ready || instantRef.current) return;
+    if (!isInstantMultiplayer()) return;
+    instantRef.current = true;
+    const code = makeCode();
+    setRoom(code);
+    setRoomDraft(code);
+    setRoomInUrl(code);
+    setNetOn(true);
+    start();
+    toast.success("Instant multiplayer · room " + code, {
+      description: "Your friends can join you from the CrazyGames friends list.",
+    });
+  }, [booted, cg.ready, start]);
+
+  /* Progress: which shipped cars have been driven and which shipped worlds
+     have been opened. An open sandbox has no ending, so that is the definition
+     of 100% — reported as a percentage, never as a claim of completion. */
+  useEffect(() => {
+    if (!booted) return;
+    reportProgress(completion().percentage);
+  }, [booted]);
+  useEffect(() => {
+    if (!booted) return;
+    if (markWorldVisited(activeMap?.id ?? PROCEDURAL_MAP.id)) reportProgress(completion().percentage);
+  }, [booted, activeMap]);
+  useEffect(() => {
+    if (!booted || !started) return;
+    if (markCarDriven(entry.id)) reportProgress(completion().percentage);
+  }, [booted, started, entry]);
+
+  /* so a bug report from the platform's feedback form can be reproduced */
+  useEffect(() => {
+    if (!booted) return;
+    setGameContext({
+      world: worldName,
+      car: spec.name,
+      room: netOn ? room : "solo",
+      drivers: 1 + otherDrivers.length,
+      quality: tel?.quality ?? "auto",
+    });
+  }, [booted, worldName, spec.name, room, netOn, otherDrivers.length, tel?.quality]);
+
+  /* A big drift is the one real achievement this game has, so it is the one
+     thing worth a celebration — and only at three thresholds per session. */
+  const celebrated = useRef<Set<number>>(new Set());
+  const driftScore = tel?.driftPoints ?? 0;
+  useEffect(() => {
+    for (const mark of MILESTONES) {
+      if (driftScore >= mark && !celebrated.current.has(mark)) {
+        celebrated.current.add(mark);
+        happyTime();
+      }
+    }
+  }, [driftScore]);
+
+  /* --------------------------------------------------------------- the ads
+   *  A banner sits on the menu screen only — never over the road, and never
+   *  where a button can be hit by accident. The slot is reserved at its real
+   *  size before the SDK is asked (it refuses to fill a container it cannot
+   *  measure), and when the platform has nothing to show — Basic Launch, no
+   *  fill, an adblocker — it simply stays an empty strip instead of shifting
+   *  the menu around. */
+  const [bannerLive, setBannerLive] = useState(false);
+  useEffect(() => {
+    if (!booted || started) {
+      clearBanner(BANNER_ID);
+      return;
+    }
+    let live = true;
+    /* the answer arrives from the platform, so the state is set in a callback
+       and never synchronously while the effect is running */
+    void showBanner(BANNER_ID).then((ok) => {
+      if (live) setBannerLive(ok);
+    });
+    return () => {
+      live = false;
+      clearBanner(BANNER_ID);
+    };
+  }, [booted, started]);
+
+  /* The rewarded ad: an opt-in video in exchange for a real, temporary
+     advantage. It is only offered from the pause screen, where the game is
+     already stopped and the sound already down. */
+  const [boostUntil, setBoostUntil] = useState(0);
+  const [adBusy, setAdBusy] = useState(false);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!boostUntil) return;
+    const id = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [boostUntil]);
+  const boostLeftMs = Math.max(0, boostUntil - clock);
+  const boosted = boostLeftMs > 0;
+  useEffect(() => {
+    gameRef.current?.setScoreMultiplier(boosted ? 2 : 1);
+  }, [boosted, booted]);
+
+  const watchForBoost = useCallback(async () => {
+    setAdBusy(true);
+    const earned = await requestRewardedAd();
+    setAdBusy(false);
+    if (earned) setBoostUntil(Date.now() + BOOST_MS);
+    else toast.message("No video available right now");
+  }, []);
+
+  /* A run ends in a natural break — which is exactly where a midgame ad
+     belongs. The game is paused first, so it is silent and frozen behind the
+     video, and the room is kept so the next run starts with the same people. */
+  const endRun = useCallback(() => {
+    setPanel("none");
+    setPaused(true);
+    gameRef.current?.setPaused(true);
+    requestMidgameAd({
+      onEnd: () => {
+        setStarted(false);
+        setPaused(false);
+      },
+    });
+  }, []);
+
   const heat = tel ? tel.heat.reduce((a, b) => a + b, 0) / 4 : 0;
   const tyreState = useMemo(() => {
     if (heat < 0.25) return { label: "COLD", className: "text-muted-foreground" };
@@ -588,6 +836,7 @@ export default function Drive() {
             {(tel?.gear ?? "D1") + " / " + (driver || "DRIVER").toUpperCase().slice(0, 14)}
             {headlights ? " / LIGHTS" : ""}
             {tel?.quality ? " / " + tel.quality : ""}
+            {boosted ? " / 2× DRIFT POINTS" : ""}
             {netOn ? " / " + (1 + othersOnline) + " ONLINE" : ""}
           </div>
         </div>
@@ -640,6 +889,20 @@ export default function Drive() {
         {notice}
       </div>
 
+      {/* the menu banner. Menus only, never over the road, and the container
+          has to exist at its real size before the SDK is asked for a banner. */}
+      {booted && !started ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[9] flex justify-center">
+          <div
+            id={BANNER_ID}
+            className={
+              "pointer-events-auto h-[60px] w-full max-w-[728px] sm:h-[90px] " +
+              (bannerLive ? "border-t border-white/10" : "")
+            }
+          />
+        </div>
+      ) : null}
+
       {/* --------------------------------------------------------- overlays */}
       {!booted && !bootError && (
         <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon">
@@ -689,6 +952,7 @@ export default function Drive() {
           onSky={chooseSky}
           driver={driver}
           onForgetDriver={forgetDriver}
+          platform={cg.user}
           others={othersOnline}
           room={room}
           netOn={netOn}
@@ -712,7 +976,36 @@ export default function Drive() {
             ) : null}
             <div className="mt-4 grid gap-2">
               <Button className="cursor-pointer" onClick={togglePause}>Resume driving</Button>
+              <Button
+                variant="outline"
+                className="cursor-pointer gap-2"
+                disabled={adBusy}
+                onClick={() => void watchForBoost()}
+              >
+                {adBusy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="size-4" />
+                )}
+                {boosted ? "EXTEND 2× DRIFT POINTS" : "WATCH A VIDEO · 2× DRIFT POINTS"}
+              </Button>
+              {boosted ? (
+                <div className="font-mono text-[10px] tracking-[0.14em] text-emerald-400">
+                  2× DRIFT POINTS · {Math.max(1, Math.ceil(boostLeftMs / 60000))} MIN LEFT
+                </div>
+              ) : (
+                <div className="font-mono text-[9px] leading-relaxed tracking-[0.1em] text-muted-foreground">
+                  OPTIONAL. NOTHING IN THE GAME IS LOCKED BEHIND IT — THE VIDEO IS THE ONLY PRICE.
+                </div>
+              )}
               <Button variant="outline" className="cursor-pointer" onClick={() => setPanel("car")}>Open garage</Button>
+              <Button
+                variant="ghost"
+                className="cursor-pointer font-mono text-[10px] tracking-[0.16em] text-muted-foreground"
+                onClick={endRun}
+              >
+                END RUN · BACK TO THE GARAGE
+              </Button>
             </div>
           </div>
         </div>
@@ -800,7 +1093,7 @@ export default function Drive() {
             </p>
           </Group>
 
-          <Group label="Monde / world">
+          <Group label="World">
             <div className="space-y-2">
               {worldList.map((source) => {
                 const driving = worldName === source.name;
@@ -882,11 +1175,12 @@ export default function Drive() {
             <div className="mt-4 flex items-center gap-3">
               <Label className="text-xs">Volume</Label>
               <Slider
-                value={[volume * 100]}
+                value={[cg.settings.muteAudio ? 0 : volume * 100]}
                 min={0}
                 max={100}
                 step={5}
-                className="cursor-pointer"
+                disabled={cg.settings.muteAudio}
+                className={cg.settings.muteAudio ? "" : "cursor-pointer"}
                 onValueChange={(v) => {
                   const val = (v[0] ?? 50) / 100;
                   setVolume(val);
@@ -894,6 +1188,12 @@ export default function Drive() {
                 }}
               />
             </div>
+            {cg.settings.muteAudio ? (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Sound is muted for this session by the platform, which takes priority over this
+                slider.
+              </p>
+            ) : null}
           </Group>
 
           <div className="grid gap-2">
@@ -1091,7 +1391,7 @@ function ModelLine({ model, entry, compact }: { model: ModelState | null; entry:
 }
 
 function IntroOverlay({
-  entry, spec, equipping, onChooseCar, onStart, sky, onSky, driver, onForgetDriver,
+  entry, spec, equipping, onChooseCar, onStart, sky, onSky, driver, onForgetDriver, platform,
   others, room, netOn, onNet, worlds, worldName, onWorld, garage, model,
 }: {
   entry: CarEntry;
@@ -1103,6 +1403,8 @@ function IntroOverlay({
   onSky: (h: number) => void;
   driver: string;
   onForgetDriver: () => void;
+  /** the CrazyGames account behind the name, when there is one */
+  platform: CgUser | null;
   others: number;
   room: string;
   netOn: boolean;
@@ -1114,7 +1416,7 @@ function IntroOverlay({
   model: ModelState | null;
 }) {
   return (
-    <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 backdrop-blur-[3px]">
+    <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 pb-[76px] backdrop-blur-[3px] sm:pb-[104px]">
       <div className="max-h-full w-[min(94vw,760px)] overflow-y-auto border border-white/12 bg-black/55 p-5 sm:p-7">
         <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
           OPEN CITY / LIVE MULTIPLAYER / 240 HZ VEHICLE DYNAMICS
@@ -1216,13 +1518,29 @@ function IntroOverlay({
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">DRIVING AS</span>
             <span className="font-display text-sm font-bold tracking-tight text-chalk">{driver.toUpperCase()}</span>
-            <button
-              type="button"
-              onClick={onForgetDriver}
-              className="cursor-pointer border border-white/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
-            >
-              CHANGE
-            </button>
+            {platform ? (
+              <span className="flex items-center gap-1.5 border border-white/12 px-1.5 py-0.5">
+                {platform.profilePictureUrl ? (
+                  <img
+                    src={platform.profilePictureUrl}
+                    alt=""
+                    className="size-4 object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : null}
+                <span className="font-mono text-[9px] tracking-[0.16em] text-signal">
+                  CRAZYGAMES ACCOUNT
+                </span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onForgetDriver}
+                className="cursor-pointer border border-white/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
+              >
+                CHANGE
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Users className="size-3.5 text-signal" />
@@ -1251,7 +1569,7 @@ function IntroOverlay({
               MULTIPLAYER
             </Badge>
             <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-              ENTER A PSEUDONYM, DRIVE
+              {platform ? "SIGNED IN WITH CRAZYGAMES" : "ENTER A PSEUDONYM, DRIVE"}
             </span>
           </span>
         </div>

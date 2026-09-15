@@ -6,7 +6,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'self' https://*.crazygames.com https://crazygames.com"
+          "value": "frame-ancestors 'self' https://*.crazygames.com https://www.crazygames.com https://www.crazygames.fr https://www.crazygames.co.id https://www.crazygames.cz https://www.crazygames.dk https://www.crazygames.hu https://www.crazygames.nl https://www.crazygames.no https://www.crazygames.pl https://www.crazygames.com.br https://www.crazygames.ro https://www.crazygames.fi https://www.crazygames.se https://www.crazygames.ru https://www.crazygames.com.ua https://www.crazygames.at https://www.crazygames.jp https://www.crazygames.pt https://www.crazygames.vn https://www.crazygames.com.vn https://www.crazygames.co.kr https://games.crazygames.com https://app.crazygames.com capacitor://app.crazygames.com"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
@@ -14,6 +14,18 @@
     },
     {
       "source": "/maps/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/models/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/tex/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]

@@ -65,14 +65,14 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
     name: "RIVERBEND",
     kind: "glb",
     url: "/maps/riverbend.glb",
-    bytes: 3440640,
+    bytes: 6940392,
     fitTo: 0,
     turn: 0,
     cell: 4,
     wallHeight: 2.2,
     spawn: null,
     credit:
-      "1800 × 1800 m river city · 5 bridges, downtown, industrial, mall, tunnels, forest",
+      "1800 × 1800 m river city · 6 bridges, downtown, industrial, mall, tunnels, forest",
   },
 ];
 

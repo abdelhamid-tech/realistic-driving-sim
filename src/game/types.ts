@@ -145,5 +145,12 @@ export interface GameHandle {
   /** Our own transform for the network. Null before the first frame. */
   netSnapshot(): NetSnapshot | null;
   setVolume(v: number): void;
+  /**
+   * The platform's hard mute (`settings.muteAudio` on CrazyGames). It takes
+   * priority over the in-game volume and over the M key, as required.
+   */
+  setAudioMuted(on: boolean): void;
+  /** Multiplies drift scoring; 1 is normal, 2 is the rewarded-ad boost. */
+  setScoreMultiplier(multiplier: number): void;
   sessionStats(): SessionStats;
 }
