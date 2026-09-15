@@ -514,7 +514,7 @@ export default function Drive() {
       <div className={"pointer-events-none absolute inset-0 z-[3] transition-opacity duration-500 " + (started ? "opacity-100" : "opacity-0")}>
         {/* brand */}
         <div className="absolute left-4 top-4 sm:left-6 sm:top-5">
-          <div className="font-mono text-[10px] tracking-[0.34em] text-signal">APEX CITY / DRIVE</div>
+          <div className="font-mono text-[10px] tracking-[0.34em] text-signal">RIVERBEND / DRIVE</div>
           <div className="font-display text-xl leading-tight font-bold tracking-tight sm:text-2xl">
             {spec.name}
           </div>
@@ -647,7 +647,7 @@ export default function Drive() {
         <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon">
           <div className="text-center">
             <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-signal border-t-transparent" />
-            <div className="font-mono text-[11px] tracking-[0.24em] text-muted-foreground">BUILDING APEX CITY...</div>
+            <div className="font-mono text-[11px] tracking-[0.24em] text-muted-foreground">BUILDING THE CITY...</div>
           </div>
         </div>
       )}
@@ -816,7 +816,7 @@ export default function Drive() {
                 const badge = driving
                   ? "DRIVING"
                   : source.kind === "procedural"
-                    ? "BUILT-IN"
+                    ? "PROCEDURAL"
                     : source.url.startsWith("/maps/")
                       ? "SHIPPED"
                       : source.kind.toUpperCase() + (source.bytes ? " · " + formatBytes(source.bytes) : "");
@@ -1220,7 +1220,7 @@ function IntroOverlay({
         <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
           OPEN CITY / LIVE MULTIPLAYER / 240 HZ VEHICLE DYNAMICS
         </div>
-        <h1 className="mt-1 font-display text-4xl leading-none font-bold tracking-tight sm:text-5xl">APEX CITY</h1>
+        <h1 className="mt-1 font-display text-4xl leading-none font-bold tracking-tight sm:text-5xl">RIVERBEND</h1>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
           A fixed fleet of real car models on one 240 Hz physics core: Pacejka tyre slip, live
           suspension load, tyre thermics, weather grip and a city that wakes up at dusk. Pick your

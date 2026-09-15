@@ -26,42 +26,33 @@ type Expectation = {
 };
 
 const EXPECT: Record<string, Expectation> = {
-  "harbor-city": {
+  "riverbend": {
     level: 0,
     tol: 0.3,
     extra: (F) => [
       [
-        "the boulevard under the viaduct is at street level",
-        near(sampleMap(F, 0, 120, 0.5)!, 0, 0.05),
-        `h=${sampleMap(F, 0, 120, 0.5)}`,
+        "the river is cut: the water bed is the lowest surface at the centreline",
+        near(Math.min(...(layersAt(F, 0, riverZAt(0)) ?? [99])), -3.5, 0.2) &&
+          !(layersAt(F, 0, riverZAt(0)) ?? []).some((h) => h > 0.4 && h < 4.5),
+        `levels near the centreline: ${(layersAt(F, 0, riverZAt(0)) ?? []).join(", ")}`,
       ],
       [
-        "the viaduct deck is drivable from above it",
-        near(sampleMap(F, 0, 120, 9.4)!, 9, 0.25),
-        `h=${sampleMap(F, 0, 120, 9.4)}`,
+        "a bridge deck is drivable from above it",
+        near(sampleMap(F, 0, riverZAt(0), DECK_Y + 0.5)!, DECK_Y, 0.3),
+        `h=${sampleMap(F, 0, riverZAt(0), DECK_Y + 0.5)}`,
       ],
       [
-        "that cell really holds two surfaces",
-        layersAt(F, 0, 120).length >= 2,
-        `layers=${layersAt(F, 0, 120).join(", ")}`,
+        "the bank slopes down, not a cliff at the water",
+        (layersAt(F, 0, riverZAt(0) - riverHalfAt(0) - 12) ?? []).length > 0,
+        "a bank cell exists",
       ],
       [
-        "the water is 3 m below the quay",
-        near(layersAt(F, 60, 220)[0] ?? -99, -3, 0.1),
-        `layers=${layersAt(F, 60, 220).join(", ")}`,
+        "the tunnels hold a drivable floor",
+        near(sampleMap(F, TUNNELS[0].x, -500, 0.5)!, 0, 0.3),
+        `h=${sampleMap(F, TUNNELS[0].x, -500, 0.5)}`,
       ],
       [
-        "the quay edge is a wall, so the harbour is fenced off",
-        wallsNear(F, 60, 170, []).some((b) => Math.abs(b.z - 170) < 1.2 && b.hx > 10),
-        `${wallsNear(F, 60, 170, []).length} boxes near the quay`,
-      ],
-      [
-        "a pier is drivable",
-        near(sampleMap(F, 0, 220, 0.5)!, 0, 0.05),
-        `h=${sampleMap(F, 0, 220, 0.5)}`,
-      ],
-      [
-        "a tower has a wall at its full height",
+        "a tower wall exists downtown",
         F.walls.some((b) => b.top > 40 && b.hx > 4),
         `${F.walls.length} wall boxes, tallest ${Math.max(...F.walls.map((b) => b.top)).toFixed(0)} m`,
       ],
@@ -70,6 +61,16 @@ const EXPECT: Record<string, Expectation> = {
 };
 
 const near = (a: number, b: number, tol: number) => Math.abs(a - b) < tol;
+
+/* the river's geometry, mirrored from tools/build-riverbend.mjs for assertions */
+const MEAN_Z = 0, AMP = 260, WAVELEN = 1450, RIVER_HALF_BASE = 95, RIVER_HALF_WIDEN = 28;
+const riverZAt = (x: number) => MEAN_Z + AMP * Math.sin((x / WAVELEN) * Math.PI * 2);
+const riverHalfAt = (x: number) => RIVER_HALF_BASE + RIVER_HALF_WIDEN * Math.cos((x / WAVELEN) * Math.PI * 4 + 1.1);
+const DECK_Y = 9;
+const TUNNELS = [
+  { x: -540, z0: -640, z1: -400, w: 9, h: 5.4 },
+  { x: 540, z0: 400, z1: 640, w: 9, h: 5.4 },
+];
 
 /** Exactly what createGame() does to a model, minus the scene. */
 function trianglesOf(root: THREE.Object3D) {

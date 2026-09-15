@@ -55,23 +55,24 @@ export function isProcedural(src: WorldMapSource) {
 }
 
 /* ---------------------------------------------------------------------------
- *  MAPS THE GAME SHIPS WITH
- *  Real geometry, built from code (tools/build-harbor.mjs), served out of
- *  public/maps/. They are in metres already, so they are not re-fitted.
+ *  THE MAP THE GAME SHIPS WITH — one world, built from code
+ *  (tools/build-riverbend.mjs), served out of public/maps/. Metres already,
+ *  so it is not re-fitted.
  * -------------------------------------------------------------------------*/
 export const BUILT_IN_MAPS: WorldMapSource[] = [
   {
-    id: "harbor-city",
-    name: "HARBOR CITY",
+    id: "riverbend",
+    name: "RIVERBEND",
     kind: "glb",
-    url: "/maps/harbor-city.glb",
-    bytes: 518936,
+    url: "/maps/riverbend.glb",
+    bytes: 3440640,
     fitTo: 0,
     turn: 0,
     cell: 4,
     wallHeight: 2.2,
     spawn: null,
-    credit: "840 × 660 m port city · quays, piers, an elevated viaduct",
+    credit:
+      "1800 × 1800 m river city · 5 bridges, downtown, industrial, mall, tunnels, forest",
   },
 ];
 
