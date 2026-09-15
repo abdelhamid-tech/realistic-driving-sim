@@ -15,6 +15,7 @@ import type * as cars from "../cars.js";
 import type * as http from "../http.js";
 import type * as maps from "../maps.js";
 import type * as multiplayer from "../multiplayer.js";
+import type * as props from "../props.js";
 import type * as users from "../users.js";
 
 import type {
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   maps: typeof maps;
   multiplayer: typeof multiplayer;
+  props: typeof props;
   users: typeof users;
 }>;
 

@@ -20,8 +20,13 @@ import {
   type RigPlan, type WheelSample,
 } from "./rigging";
 import {
-  CITY_R, KERB_APRON, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
+  CITY_R, KERB_APRON, STREETS, WALK_H, blockAt, buildCity, cityH, cityPropSpots, cityState,
+  onStreet,
 } from "./city";
+import {
+  buildPropLayer, hideLowPolyProps, registerPropSink, showLowPolyProps,
+  type PropLayer, type PropModel, type PropSpotMap,
+} from "./props";
 import type {
   CarLoadOptions, GameHandle, GameOptions, NetSnapshot, RemoteDriver, Telemetry, Weather,
 } from "./types";
@@ -667,6 +672,83 @@ export function createGame(opts: GameOptions): GameHandle {
   const parkedCarSpots = city.parkedCarSpots;
   const lampPoints = city.lampPoints;
   worldRoot.add(cityRoot);
+
+  /* ------------------------------------------------------- the prop layer *
+   *  The street furniture is made of real models: the city recorded where
+   *  every tree, planting, lamp and signal stands (cityPropSpots), the
+   *  shipped map brings its own list, and this puts a model on every spot —
+   *  the shipped library, or the owner's own upload for that slot. The
+   *  low-poly version of every slot the layer could cover is hidden, so the
+   *  two never show at once. */
+  let propModels: PropModel[] = (opts.propModels ?? []).filter((m) => m && m.url);
+  let cityPropLayer: PropLayer | null = null;
+  let worldPropLayer: PropLayer | null = null;
+  let worldPropSpots: PropSpotMap | null = null;
+  let cityPropToken = 0;
+  let worldPropToken = 0;
+
+  function dropCityProps() {
+    if (cityPropLayer) {
+      worldRoot.remove(cityPropLayer.group);
+      cityPropLayer.dispose();
+      cityPropLayer = null;
+    }
+    showLowPolyProps(cityRoot);
+  }
+
+  function dropWorldProps() {
+    if (worldPropLayer) {
+      scene.remove(worldPropLayer.group);
+      worldPropLayer.dispose();
+      worldPropLayer = null;
+    }
+  }
+
+  async function applyCityProps() {
+    const token = ++cityPropToken;
+    if (canvas.isConnected === false) return;
+    const layer = await buildPropLayer({ spots: cityPropSpots, models: propModels });
+    if (token !== cityPropToken) {
+      layer.dispose();
+      return;
+    }
+    dropCityProps();
+    cityPropLayer = layer;
+    /* a slot whose model did not load keeps its low-poly version */
+    hideLowPolyProps(cityRoot, layer.slots);
+    worldRoot.add(layer.group);
+  }
+
+  async function applyWorldProps() {
+    const token = ++worldPropToken;
+    const spots = worldPropSpots;
+    if (!spots) {
+      dropWorldProps();
+      return;
+    }
+    const layer = await buildPropLayer({ spots, models: propModels });
+    if (token !== worldPropToken) {
+      layer.dispose();
+      return;
+    }
+    dropWorldProps();
+    worldPropLayer = layer;
+    scene.add(layer.group);
+  }
+
+  /* the app owns the Convex data; it pushes it here by canvas */
+  registerPropSink(canvas, {
+    setModels(models) {
+      propModels = models.filter((m) => m && m.url);
+      void applyCityProps();
+      void applyWorldProps();
+    },
+    setWorldSpots(spots) {
+      worldPropSpots = spots;
+      void applyWorldProps();
+    },
+  });
+  void applyCityProps();
 
   {
     const streetMat = asphaltMat(2, 72);

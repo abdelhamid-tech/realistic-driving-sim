@@ -107,6 +107,23 @@ const schema = defineSchema(
       klass: v.optional(v.string()),
       createdAt: v.number(),
     }).index("by_created", ["createdAt"]),
+
+    // The owner's real models for the street furniture: one row per slot
+    // (tree, plant, lamp, signal). Every player drives past them, on the
+    // built-in city and on the shipped maps alike; only the owner's key
+    // writes here. Removing a row puts the shipped model back.
+    importedProps: defineTable({
+      slot: v.string(),
+      name: v.string(),
+      fileName: v.string(),
+      storageId: v.id("_storage"),
+      bytes: v.number(),
+      /** degrees added to every spot — for a model facing the wrong way */
+      turn: v.optional(v.number()),
+      /** multiplies the slot's height; 1 draws it as the slot is sized */
+      scale: v.optional(v.number()),
+      createdAt: v.number(),
+    }).index("by_slot", ["slot"]),
   },
   {
     schemaValidation: false,

@@ -1,3 +1,4 @@
+import type { PropModel } from "./props";
 import type { VehicleKind, VehicleSpec } from "./vehicles";
 import type { WorldMapSource } from "./worldmaps";
 
@@ -96,6 +97,11 @@ export interface GameOptions {
   initialPaint?: number;
   /** URL per dressing slot the owner has overridden; absent = shipped texture */
   worldTextures?: Partial<Record<string, string>>;
+  /**
+   * The owner's real models for the street furniture, one row per slot
+   * (see ./props). Absent slots are dressed with the shipped library.
+   */
+  propModels?: PropModel[];
   /** called when the ground textures finish loading */
   onDressed?: () => void;
 }

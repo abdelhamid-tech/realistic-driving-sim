@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatBytes, mapFromRow, type WorldMapRow } from "@/game/worldmaps";
 import { CAR_PRESETS, type ImportedCar } from "@/game/carmodels";
 import {
-  ArrowLeft, Car, Check, KeyRound, Loader2, Play, Trash2, TriangleAlert, UploadCloud,
+  ArrowLeft, Car, Check, KeyRound, Loader2, Play, Trees, Trash2, TriangleAlert, UploadCloud,
 } from "lucide-react";
 
 /**
@@ -289,11 +289,18 @@ export default function Import() {
             <div className="font-mono text-[10px] tracking-[0.32em] text-signal">OWNER · UNLOCKED</div>
             <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">WORLD IMPORT</h1>
           </div>
-          <Button variant="outline" asChild className="cursor-pointer">
-            <Link to="/drive">
-              <Play className="size-3.5" /> DRIVE
-            </Link>
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" asChild className="cursor-pointer">
+              <Link to="/assets" title="World textures and the models of the trees, lamps and signals">
+                <Trees className="size-3.5" /> WORLD ASSETS
+              </Link>
+            </Button>
+            <Button variant="outline" asChild className="cursor-pointer">
+              <Link to="/drive">
+                <Play className="size-3.5" /> DRIVE
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* ------------------------------------------------------------ upload */}

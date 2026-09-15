@@ -29,6 +29,13 @@ export interface WorldMapSource {
   wallHeight: number;
   /** where the car starts; null means "find the widest street" */
   spawn: { x: number; z: number; yaw: number } | null;
+  /**
+   * A shipped map can bring the list of props it wants standing on it: the
+   * spots its street furniture belongs on, in the coordinates the engine sees
+   * once the model has been centred (see ./props). Watch out: a map without
+   * one is driven exactly as its author modelled it.
+   */
+  propsUrl?: string;
   credit: string;
 }
 
@@ -71,14 +78,15 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
     name: "RIVERBEND",
     kind: "glb",
     url: "maps/riverbend.glb",
-    bytes: 6940392,
+    bytes: 3281372,
     fitTo: 0,
     turn: 0,
     cell: 4,
     wallHeight: 2.2,
     spawn: null,
+    propsUrl: "maps/riverbend.props.json",
     credit:
-      "1800 × 1800 m river city · 6 bridges, downtown, industrial, mall, tunnels, forest",
+      "1800 × 1800 m river city · 6 bridges, downtown, industrial, mall, tunnels, forest · real trees, lamps and signals",
   },
 ];
 

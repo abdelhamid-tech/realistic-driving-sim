@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { recordPropSpot, type PropAnchor, type PropSlot, type PropSpotMap } from "./props";
 
 /* ============================================================================
  *  APEX CITY — the built environment.
@@ -106,6 +107,13 @@ export function onStreet(x: number, z: number) {
 }
 
 export const cityState = { on: true };
+
+/**
+ * Where the last built city stands its street furniture: one spot per tree,
+ * planting, lamp and signal, filled as the city is built. The engine reads it
+ * to stamp the real models of ./props down in their place.
+ */
+export const cityPropSpots: PropSpotMap = {};
 
 export function cityH(x: number, z: number) {
   if (!cityState.on) return 0;
@@ -305,6 +313,20 @@ interface Batch {
   mat: THREE.Material;
   list: THREE.Matrix4[];
   shadow: boolean;
+  /**
+   * The prop slot this geometry belongs to, if it is a prop. Every piece of
+   * one slot is tagged with the same name, so the engine can hide the whole
+   * low-poly version of a slot the moment a real model covers it — see
+   * ./props. Two names joined with "+" mean the parts are shared by both
+   * slots (the masts the street lamps and the traffic signals stand on).
+   */
+  tag?: string;
+  /**
+   * File one spot per instance of this batch, so the real model of the slot
+   * can be stamped down in its place. Set it on ONE batch per prop — the post,
+   * not the arm and the head — or a single street lamp is planted three times.
+   */
+  spot?: PropAnchor;
 }
 
 const _m = new THREE.Matrix4();
@@ -313,9 +335,28 @@ const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
-function makeBatch(geo: THREE.BufferGeometry, mat: THREE.Material, shadow: boolean): Batch {
-  return { geo, mat, list: [], shadow };
+function makeBatch(
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+  shadow: boolean,
+  tag?: string,
+  spot?: PropAnchor,
+): Batch {
+  return { geo, mat, list: [], shadow, tag, spot };
 }
+
+/**
+ * Geometry + material pairs that belong to a prop slot, filled in by the
+ * builder once its geometries and materials exist. The furniture asks for its
+ * parts through the shared cache by pair, and that pair is the only thing that
+ * says which prop a part belongs to — see ./props.
+ */
+const SKIN_SLOTS: {
+  geo: THREE.BufferGeometry;
+  mat: THREE.Material;
+  slot: PropAnchor["slot"];
+  anchor: boolean;
+}[] = [];
 
 /**
  * One instanced draw call per (geometry, material, shadow) pair that is
@@ -328,7 +369,10 @@ function makePartCache(batches: Batch[]) {
     const key = `${geo.uuid}:${mat.uuid}:${shadow ? 1 : 0}`;
     let b = cache.get(key);
     if (!b) {
-      b = makeBatch(geo, mat, shadow);
+      /* some furniture is asked for by geometry + material only, and that pair
+         is what tells us which prop slot it belongs to */
+      const rule = SKIN_SLOTS.find((r) => r.geo === geo && r.mat === mat);
+      b = makeBatch(geo, mat, shadow, rule?.slot, rule?.anchor ? { slot: rule.slot } : undefined);
       cache.set(key, b);
       batches.push(b);
     }
@@ -343,6 +387,9 @@ function put(b: Batch, x: number, y: number, z: number, sx: number, sy: number, 
   _s.set(sx, sy, sz);
   _m.compose(_p, _q, _s);
   b.list.push(_m.clone());
+  /* every prop the city stands up announces itself here, wherever in the
+     placement code it was built from — see ./props for what it is used for */
+  if (b.spot) recordPropSpot(cityPropSpots, b.spot, x, y, z, yaw, STREETS);
 }
 
 function bakeBatches(root: THREE.Object3D, batches: Batch[]) {
@@ -354,6 +401,7 @@ function bakeBatches(root: THREE.Object3D, batches: Batch[]) {
     im.castShadow = b.shadow;
     im.receiveShadow = true;
     im.frustumCulled = false;
+    if (b.tag) im.name = `prop:${b.tag}`;
     root.add(im);
   }
 }
@@ -380,6 +428,9 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const parkSpots: [number, number][] = [];
   const parkedCarSpots: [number, number, number][] = [];
   const treeSpots: { x: number; z: number; sc: number }[] = [];
+
+  /* a fresh build starts a fresh map of props */
+  for (const key of Object.keys(cityPropSpots)) delete cityPropSpots[key as PropSlot];
 
   /* ---------------------------------------------------------- geometries */
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -579,9 +630,14 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const mastBatch = makeBatch(cylGeo, darkMetalMat, false);
   const billboardBatch: Batch[] = [];
   const frameBatch = makeBatch(boxGeo, darkMetalMat, false);
-  const treeTrunkBatch = makeBatch(cylGeo, woodMat, true);
-  const treeLeafBatch = makeBatch(blobGeo, leafMat, true);
-  const pitBatch = makeBatch(planeGeo, new THREE.MeshStandardMaterial({ color: 0x3b3226, roughness: 1 }), false);
+  const treeTrunkBatch = makeBatch(cylGeo, woodMat, true, "tree", { slot: "tree" });
+  const treeLeafBatch = makeBatch(blobGeo, leafMat, true, "tree");
+  const pitBatch = makeBatch(
+    planeGeo,
+    new THREE.MeshStandardMaterial({ color: 0x3b3226, roughness: 1 }),
+    false,
+    "tree",
+  );
   const benchBatch = makeBatch(boxGeo, woodMat, false);
   const benchLegBatch = makeBatch(boxGeo, darkMetalMat, false);
   const binBatch = makeBatch(cylGeo, darkMetalMat, false);
@@ -595,9 +651,12 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const signPlateBatch: Batch[] = [];
   const shelterRoofBatch = makeBatch(boxGeo, darkMetalMat, true);
   const shelterGlassBatch = makeBatch(boxGeo, glassShopMat, false);
-  const poleBatch = makeBatch(cylGeo, darkMetalMat, false);
-  const armBatch = makeBatch(boxGeo, darkMetalMat, false);
-  const headBatch = makeBatch(boxGeo, darkMetalMat, true);
+  /* the masts carry both the street lamps and the traffic signals, so their
+     tag names both slots: they only come down once both are real models */
+  const poleBatch = makeBatch(cylGeo, darkMetalMat, false, "lamp+signal", { slot: "pole" });
+  const armBatch = makeBatch(boxGeo, darkMetalMat, false, "lamp+signal");
+  /* the head is the signal's alone */
+  const headBatch = makeBatch(boxGeo, darkMetalMat, true, "signal");
   const paintWhiteBatch = makeBatch(planeGeo, paintWhite, false);
   const paintYellowBatch = makeBatch(planeGeo, paintYellow, false);
   const paintBlueBatch = makeBatch(planeGeo, paintBlue, false);
@@ -628,10 +687,22 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const lampMaterial = new THREE.MeshStandardMaterial({
     color: 0xd9d4c2, emissive: 0xfff0c8, emissiveIntensity: 0.05, roughness: 0.6,
   });
-  const lampHeadBatch = makeBatch(boxGeo, lampMaterial, false);
+  const lampHeadBatch = makeBatch(boxGeo, lampMaterial, false, "lamp");
   const lampGlowBatch = makeBatch(blobGeo, new THREE.MeshBasicMaterial({
     color: 0xffd9a0, transparent: true, opacity: 0.0, depthWrite: false, toneMapped: false,
-  }), false);
+  }), false, "lamp");
+
+  /* --- which shared part belongs to which prop slot ------------------- *
+   * The furniture below asks for its parts through the part cache rather than
+   * its own batches, so a slot is recognised by the geometry + material pair
+   * it is built from. The planting in a planter is the foliage blob: tag it
+   * and file one spot per planter, and the real models take over. */
+  SKIN_SLOTS.length = 0;
+  SKIN_SLOTS.push({ geo: blobGeo, mat: leafMat, slot: "plant", anchor: true });
+
+  /* the signal lenses are built outside the batch system, so they carry their
+     slot on the material instead: hiding the light hides the lights */
+  for (const m of [lampMatR, lampMatA, lampMatG]) m.userData.propSlot = "signal";
 
   /* ------------------------------------------------------------- signage */
   function signTexture(lines: string[], bg: string, fg: string, accent?: string) {

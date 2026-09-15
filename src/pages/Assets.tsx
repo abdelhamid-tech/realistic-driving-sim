@@ -5,8 +5,10 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowLeft, Check, ImageIcon, KeyRound, Loader2, RefreshCw, Trash2, TriangleAlert, UploadCloud,
+  ArrowLeft, Check, ImageIcon, KeyRound, Loader2, RefreshCw, RotateCw, Trash2, Trees,
+  TriangleAlert, UploadCloud,
 } from "lucide-react";
+import { PROP_SLOTS } from "@/game/props";
 
 /**
  * GLOBAL ASSETS — the owner's texture door.
@@ -39,22 +41,41 @@ interface AssetRow {
   url: string | null;
 }
 
+/** One row of `props.list`: the model standing in for a slot. */
+interface PropRow {
+  id: string;
+  slot: string;
+  name: string;
+  fileName: string;
+  bytes: number;
+  turn: number;
+  scale: number;
+  url: string | null;
+}
+
 export default function Assets() {
   const [key, setKey] = useState(() => window.sessionStorage.getItem(KEY_STORE) ?? "");
   const [unlocked, setUnlocked] = useState(false);
 
   const overrides = useQuery(api.assets.list, unlocked ? {} : "skip");
+  const props = useQuery(api.props.list, unlocked ? {} : "skip") as PropRow[] | undefined;
 
   const unlock = useMutation(api.maps.unlock);
   const uploadUrl = useMutation(api.assets.uploadUrl);
   const register = useMutation(api.assets.register);
   const removeAsset = useMutation(api.assets.remove);
+  const propUploadUrl = useMutation(api.props.uploadUrl);
+  const registerProp = useMutation(api.props.register);
+  const removeProp = useMutation(api.props.remove);
+  const tuneProp = useMutation(api.props.tune);
 
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Slot | null>(null);
   const [dragSlot, setDragSlot] = useState<Slot | null>(null);
+  const [propBusy, setPropBusy] = useState<string | null>(null);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const propInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const tryUnlock = useCallback(
     async (value: string) => {
@@ -132,6 +153,76 @@ export default function Assets() {
     [key, removeAsset],
   );
 
+  /* ------------------------------------------------- the owner's own models
+   *  One model per street-furniture slot: it is stamped on every tree, planter,
+   *  lamp post and traffic light of the world, for everybody, live. */
+  const sendProp = useCallback(
+    async (slot: string, file: File) => {
+      if (!/\.(glb)$/i.test(file.name)) {
+        toast.error("That is not a model", { description: "glTF binary (.glb) only." });
+        return;
+      }
+      setPropBusy(slot);
+      try {
+        const url = await propUploadUrl({ password: key });
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "model/gltf-binary" },
+          body: file,
+        });
+        if (!res.ok) throw new Error(`upload failed (${res.status})`);
+        const { storageId } = (await res.json()) as { storageId: string };
+        await registerProp({
+          password: key,
+          storageId: storageId as never,
+          slot,
+          name: file.name.replace(/\.[^.]+$/, ""),
+          fileName: file.name,
+          bytes: file.size,
+        });
+        toast.success(`${slot} replaced`, {
+          description: "Every player drives past it now.",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/wrong key/i.test(message)) {
+          setUnlocked(false);
+          window.sessionStorage.removeItem(KEY_STORE);
+          setError("The key stopped working. Unlock again.");
+        } else {
+          toast.error("Upload failed", { description: message });
+        }
+      } finally {
+        setPropBusy(null);
+      }
+    },
+    [key, propUploadUrl, registerProp],
+  );
+
+  const dropProp = useCallback(
+    async (id: string, slot: string) => {
+      try {
+        await removeProp({ password: key, id: id as never });
+        toast.success(`${slot} back to the shipped model`);
+      } catch (err) {
+        toast.error("Remove failed", { description: err instanceof Error ? err.message : String(err) });
+      }
+    },
+    [key, removeProp],
+  );
+
+  /** A model facing the wrong way: turn it without uploading it again. */
+  const turnProp = useCallback(
+    async (id: string, angle: number) => {
+      try {
+        await tuneProp({ password: key, id: id as never, turn: angle });
+      } catch (err) {
+        toast.error("Turn failed", { description: err instanceof Error ? err.message : String(err) });
+      }
+    },
+    [key, tuneProp],
+  );
+
   /* ----------------------------------------------------------------- gate */
   if (!unlocked) {
     return (
@@ -183,6 +274,8 @@ export default function Assets() {
   /* ---------------------------------------------------------------- page */
   const bySlot = new Map<string, AssetRow>();
   for (const row of overrides ?? []) bySlot.set(row.slot, row);
+  const propBySlot = new Map<string, PropRow>();
+  for (const row of props ?? []) propBySlot.set(row.slot, row);
 
   return (
     <div className="min-h-screen bg-carbon p-6">
@@ -297,8 +390,112 @@ export default function Assets() {
           })}
         </div>
 
+        <div className="mt-10 flex items-center gap-2 font-mono text-[10px] tracking-[0.3em] text-signal">
+          <Trees className="size-3.5" /> STREET FURNITURE
+        </div>
+        <h2 className="mt-1 font-display text-2xl font-bold tracking-tight">Real models in the world</h2>
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          Every tree, every planting, every street lamp and every traffic light in the game wears one
+          of these. Upload a <span className="font-mono text-chalk">.glb</span> and it stands in for the
+          shipped model at every spot in the world — the built-in city and the shipped map alike — for
+          every player. The engine measures the file and scales it to the slot's real height, so any
+          model fits.
+        </p>
+
+        <div className="mt-4 grid gap-3">
+          {PROP_SLOTS.map((slot) => {
+            const row = propBySlot.get(slot.id);
+            return (
+              <div
+                key={slot.id}
+                className="flex flex-wrap items-center gap-4 border border-white/10 bg-white/[0.03] p-4"
+              >
+                <div className="flex size-16 shrink-0 items-center justify-center border border-white/10 bg-black/40">
+                  <Trees className="size-6 text-signal/70" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-display text-sm font-bold tracking-tight">{slot.label}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {slot.id.toUpperCase()} · {slot.height} M
+                    </span>
+                    {row ? (
+                      <span className="ml-auto flex items-center gap-1 font-mono text-[10px] text-emerald-400">
+                        <Check className="size-3" /> YOURS
+                      </span>
+                    ) : (
+                      <span className="ml-auto font-mono text-[10px] text-muted-foreground">SHIPPED</span>
+                    )}
+                  </div>
+                  <p className="mt-1 truncate font-mono text-[10px] leading-relaxed text-muted-foreground">
+                    {row ? `${row.fileName} · ${(row.bytes / 1048576).toFixed(2)} MB` : slot.hint}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[9px] text-muted-foreground/70">
+                    {slot.credit} · {slot.license}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {row ? (
+                    <label
+                      className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                      title="Turn the model: 90 puts a model facing sideways back in line"
+                    >
+                      <RotateCw className="size-3" />
+                      <input
+                        type="number"
+                        step={90}
+                        defaultValue={row.turn}
+                        onChange={(e) => void turnProp(row.id, Number(e.target.value) || 0)}
+                        className="w-16 border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                      />
+                    </label>
+                  ) : null}
+                  <input
+                    ref={(el) => {
+                      propInputs.current[slot.id] = el;
+                    }}
+                    type="file"
+                    accept=".glb,model/gltf-binary"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void sendProp(slot.id, f);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="cursor-pointer font-mono text-[10px]"
+                    disabled={propBusy === slot.id}
+                    onClick={() => propInputs.current[slot.id]?.click()}
+                  >
+                    {propBusy === slot.id ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <UploadCloud className="size-3.5" />
+                    )}
+                    UPLOAD
+                  </Button>
+                  {row ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="cursor-pointer text-muted-foreground"
+                      onClick={() => void dropProp(row.id, slot.id)}
+                      title="Back to the shipped model"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         <div className="mt-6 flex items-center gap-3 font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
-          <RefreshCw className="size-3" /> RELOAD /DRIVE TO SEE IT ON THE ROAD
+          <RefreshCw className="size-3" /> TEXTURES SHOW ON RELOAD · MODELS SWAP IN LIVE
         </div>
         <Link
           to="/drive"

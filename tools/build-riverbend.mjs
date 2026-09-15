@@ -472,18 +472,28 @@ function buildMall(x0, z0, x1, z1, base) {
   }
 }
 
+/* --------------------------------------------------------------- props ---- *
+ *  The street furniture is NOT baked into the map any more. A tree, a street
+ *  lamp and a traffic light are real models (public/models/props/), and the
+ *  game stamps them on the spots listed here as it loads the world — see
+ *  src/game/props.ts. The list is written next to the model as
+ *  riverbend.props.json, already moved into the coordinates the engine sees
+ *  once it has centred the map on its own origin. */
+const PROPS = { tree: [], plant: [], lamp: [], signal: [] };
+/** everything in the map stands on a slab, at kerb height */
+const GROUND = KERB;
+function spot(slot, x, y, z, yaw = 0, scale = 1) {
+  PROPS[slot].push({ x, y, z, yaw, scale });
+}
+
 function tree(x, z, sc = 1) {
   if (inRiver(x, z) && riverDist(x, z) < riverHalf(x) + 6) return;
-  G.box(x - 0.5 * sc, 0, z - 0.5 * sc, x + 0.5 * sc, 3.4 * sc, z + 0.5 * sc, M.trunk, { skip: ["bottom"] });
-  G.box(x - 2.4 * sc, 2.6 * sc, z - 2.4 * sc, x + 2.4 * sc, 7.2 * sc, z + 2.4 * sc, M.leaf, { skip: ["bottom"] });
+  spot("tree", x, GROUND, z, 0, sc);
 }
 
 function lamp(x, z, yawAlong = 0) {
-  G.box(x - 0.14, 0, z - 0.14, x + 0.14, 7.5, z + 0.14, M.steel, { skip: ["bottom"] });
-  const dx = Math.cos(yawAlong) * 1.6, dz = Math.sin(yawAlong) * 1.6;
-  G.box(Math.min(x, x + dx) - 0.1, 7.3, Math.min(z, z + dz) - 0.1,
-        Math.max(x, x + dx) + 0.1, 7.5, Math.max(z, z + dz) + 0.1, M.steel);
-  G.box(x + dx - 0.5, 7.0, z + dz - 0.5, x + dx + 0.5, 7.3, z + dz + 0.5, M.yellow);
+  /* the shipped post reaches 1.6 m along +yawAlong; its own arm points at -Z */
+  spot("lamp", x, GROUND, z, -(yawAlong + Math.PI / 2));
 }
 
 /* ------------------------------------------------------------- districts UI */
@@ -590,33 +600,11 @@ function buildQuays() {
 /* gets one signal per approach, facing the traffic it stops.                 */
 const SIGNALS = [];   // { x, z, yaw } recorded so the game can cycle them
 function trafficSignal(x, z, yaw) {
-  /* mast pole + arm reaching over the road */
+  /* the head of the masted signal hangs over the lane at (x, z); the real
+     model is a post with its own head, so it goes where the mast stood and
+     faces the approach it stops */
   const px = x - Math.sin(yaw) * 7.5, pz = z - Math.cos(yaw) * 7.5;
-  G.box(px - 0.18, 0, pz - 0.18, px + 0.18, 6.4, pz + 0.18, M.steel);
-  /* the arm: from the pole toward the lamp head over the lane */
-  const ax = (px + x) / 2, az = (pz + z) / 2;
-  G.box(
-    Math.min(px, x) - 0.12, 6.1, Math.min(pz, z) - 0.12,
-    Math.max(px, x) + 0.12, 6.34, Math.max(pz, z) + 0.12, M.steel,
-  );
-  /* head: a dark box holding three lamps, facing oncoming traffic (yaw) */
-  const hw = 0.55, hd = 0.42, hh = 1.55;
-  G.box(x - hw, 4.7, z - hd, x + hw, 4.7 + hh, z + hd, M.lampOff);
-  /* visor over each lamp (a small lip above it) */
-  const lamps = [
-    { y: 6.0, mat: M.sigRed },
-    { y: 5.45, mat: M.sigAmber },
-    { y: 4.9, mat: M.sigGreen },
-  ];
-  for (const l of lamps) {
-    G.box(x - 0.34, l.y - 0.2, z - hd - 0.02, x + 0.34, l.y + 0.2, z - hd + 0.06, l.mat);
-    G.box(x - 0.42, l.y + 0.2, z - hd - 0.24, x + 0.42, l.y + 0.28, z - hd + 0.04, M.lampOff);
-  }
-  /* pedestrian box + button on the mast pole */
-  G.box(px - 0.22, 2.6, pz - 0.14, px + 0.22, 3.25, pz + 0.14, M.lampOff);
-  G.box(px - 0.1, 2.95, pz - 0.2, px + 0.1, 3.12, pz - 0.14, M.sigAmber);
-  /* control cabinet at the pole base */
-  G.box(px + 0.6, 0, pz - 0.45, px + 1.25, 1.15, pz + 0.45, M.yellow);
+  spot("signal", px, GROUND, pz, yaw);
   SIGNALS.push({ x, z, yaw });
 }
 
@@ -661,9 +649,47 @@ for (const z of [AVE[0], AVE[AVE.length - 1]]) {
 const primitives = G.primitives();
 const glb = writeGLB({ materials: MATERIALS, primitives, generator: "riverbend" });
 
+/* ------------------------------------------------- where the props go ------- *
+ *  The engine centres a loaded map on its own origin and drops it onto its
+ *  lowest point (see loadWorldMap in src/game/engine.ts), so the spots are
+ *  written the way the engine will see them: same shift, same metres. */
+const min = [Infinity, Infinity, Infinity];
+const max = [-Infinity, -Infinity, -Infinity];
+for (const p of primitives) {
+  const a = p.positions;
+  for (let i = 0; i < a.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const v = a[i + k];
+      if (v < min[k]) min[k] = v;
+      if (v > max[k]) max[k] = v;
+    }
+  }
+}
+const cx = (min[0] + max[0]) / 2;
+const cy = min[1];
+const cz = (min[2] + max[2]) / 2;
+const props = {};
+let propCount = 0;
+for (const [slot, list] of Object.entries(PROPS)) {
+  if (!list.length) continue;
+  propCount += list.length;
+  props[slot] = list.map((s) => ({
+    x: +(s.x - cx).toFixed(2),
+    y: +(s.y - cy).toFixed(2),
+    z: +(s.z - cz).toFixed(2),
+    yaw: +s.yaw.toFixed(4),
+    scale: +s.scale.toFixed(3),
+  }));
+}
+
 mkdirSync("public/maps", { recursive: true });
 writeFileSync("public/maps/riverbend.glb", glb);
+writeFileSync("public/maps/riverbend.props.json", JSON.stringify(props));
 console.log(
   `public/maps/riverbend.glb — ${(glb.length / 1024).toFixed(0)} KB, ` +
     `${G.triangles()} triangles, ${primitives.length} materials, ${SIGNALS.length} signals`,
+);
+console.log(
+  `public/maps/riverbend.props.json — ${propCount} spots: ` +
+    Object.entries(props).map(([k, v]) => `${k} ${v.length}`).join(", "),
 );

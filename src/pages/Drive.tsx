@@ -41,6 +41,7 @@ import {
 import {
   PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
+import { pushPropModels, pushWorldSpots, type PropModel, type PropSpotMap } from "@/game/props";
 import { Check, Download, Gauge, Link2, Loader2, PlayCircle, Settings2, Users, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
@@ -51,6 +52,18 @@ const MILESTONES = [10000, 40000, 100000];
 const BOOST_MS = 10 * 60 * 1000;
 /** The banner container on the menu screen. */
 const BANNER_ID = "riverbend-menu-banner";
+
+/** One row of `props.list`: the owner's model for a street-furniture slot. */
+interface PropRow {
+  id: string;
+  slot: string;
+  name: string;
+  fileName: string;
+  bytes: number;
+  turn: number;
+  scale: number;
+  url: string | null;
+}
 
 /** The public room everybody lands in unless an invite says otherwise. */
 const DEFAULT_ROOM = "apex-city";
@@ -102,6 +115,8 @@ function setRoomInUrl(room: string) {
 
 export default function Drive() {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  /* the canvas the engine draws on: the handle the app pushes world data to */
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clusterRef = useRef<HTMLCanvasElement | null>(null);
   const gmeterRef = useRef<HTMLCanvasElement | null>(null);
   const gameRef = useRef<GameHandle | null>(null);
@@ -136,6 +151,7 @@ export default function Drive() {
 
   /* the world we are driving on: the built city, or an imported map */
   const [worldName, setWorldName] = useState(PROCEDURAL_MAP.name);
+  const [worldSource, setWorldSource] = useState<WorldMapSource>(PROCEDURAL_MAP);
   const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
   const loadedWorldRef = useRef<string | null>(null);
 
@@ -148,6 +164,16 @@ export default function Drive() {
   const worldMaps = useQuery(api.maps.list);
   const worldAssets = useQuery(api.assets.list);
   const importedCars = useQuery(api.cars.list) as ImportedCar[] | undefined;
+  /* the owner's real models for the street furniture, one row per slot */
+  const propRows = useQuery(api.props.list) as PropRow[] | undefined;
+  const propModels = useMemo<PropModel[]>(() => {
+    const out: PropModel[] = [];
+    for (const row of propRows ?? []) {
+      if (!row.url) continue;
+      out.push({ slot: row.slot, url: row.url, turn: row.turn, scale: row.scale });
+    }
+    return out;
+  }, [propRows]);
   /* the full garage: the built-in library plus the owner's imported cars */
   const garage = useMemo(() => allCars(importedCars ?? []), [importedCars]);
 
@@ -175,6 +201,7 @@ export default function Drive() {
     const canvas = document.createElement("canvas");
     canvas.className = "absolute inset-0 h-full w-full block";
     host.appendChild(canvas);
+    canvasRef.current = canvas;
     let handle: GameHandle | null = null;
     try {
       handle = createGame({
@@ -201,6 +228,7 @@ export default function Drive() {
       gameRef.current = null;
       loadedCarRef.current = null;
       loadedWorldRef.current = null;
+      canvasRef.current = null;
       canvas.remove();
     };
   }, [notify]);
@@ -212,6 +240,39 @@ export default function Drive() {
     }, 12000);
     return () => window.clearTimeout(t);
   }, [booted]);
+
+  /* ------------------------------------------------- the street furniture *
+   *  The owner's real models for the world's trees, planting, street lamps
+   *  and traffic lights. The app owns the data, the engine owns the world, so
+   *  it is pushed across by canvas: the models always, the map's own list of
+   *  prop spots when the world being driven has one. */
+  useEffect(() => {
+    if (!booted) return;
+    pushPropModels(canvasRef.current, propModels);
+  }, [booted, propModels]);
+
+  useEffect(() => {
+    if (!booted) return;
+    const canvas = canvasRef.current;
+    const url = worldSource.propsUrl;
+    if (!url) {
+      /* an imported map is driven exactly as its author modelled it */
+      pushWorldSpots(canvas, null);
+      return;
+    }
+    let live = true;
+    fetch(url)
+      .then((res) => (res.ok ? (res.json() as Promise<PropSpotMap>) : null))
+      .then((spots) => {
+        if (live) pushWorldSpots(canvas, spots);
+      })
+      .catch(() => {
+        if (live) pushWorldSpots(canvas, null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [booted, worldSource]);
 
   /* -------------------------------------------------------- the player's car
    *  The library is fixed: the only thing a player can do is pick one of these
@@ -340,12 +401,15 @@ export default function Drive() {
     if (!game) return;
     loadedWorldRef.current = source.id;
     setWorldName(source.name);
+    setWorldSource(source);
     setWorldLoad({ p: 0.01, note: "opening" });
     game
       .loadWorldMap(source, (p, note) => setWorldLoad({ p, note }))
       .then((report) => toast.success(source.name + " is live", { description: report }))
       .catch((err) => {
+        /* the city stays on the road, and so does its furniture list */
         loadedWorldRef.current = null;
+        setWorldSource(PROCEDURAL_MAP);
         toast.error("That world did not load", {
           description: err instanceof Error ? err.message : String(err),
         });
@@ -362,10 +426,12 @@ export default function Drive() {
     loadedWorldRef.current = wanted;
     if (!activeMap) {
       setWorldName(PROCEDURAL_MAP.name);
+      setWorldSource(PROCEDURAL_MAP);
       return;
     }
     let live = true;
     setWorldName(activeMap.name);
+    setWorldSource(activeMap);
     setWorldLoad({ p: 0.01, note: "opening" });
     game
       .loadWorldMap(activeMap, (p, note) => {
@@ -375,7 +441,10 @@ export default function Drive() {
         if (live) toast.success(activeMap.name + " is live", { description: report });
       })
       .catch((err) => {
-        if (live) loadedWorldRef.current = null;
+        if (live) {
+          loadedWorldRef.current = null;
+          setWorldSource(PROCEDURAL_MAP);
+        }
         toast.error("The active map did not load", {
           description: err instanceof Error ? err.message : String(err),
         });
