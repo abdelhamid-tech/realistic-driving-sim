@@ -122,6 +122,12 @@ export default function Drive() {
   const myStats = useQuery(api.driverStats.myStats, isAuthenticated ? {} : "skip");
   const peers = useQuery(api.multiplayer.peers, netOn ? { room } : "skip");
   const worldMaps = useQuery(api.maps.list);
+  const worldAssets = useQuery(api.assets.list);
+  const textureOverrides = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const a of worldAssets ?? []) if (a.url) out[a.slot] = a.url;
+    return out;
+  }, [worldAssets]);
 
   const notify = useCallback((message: string) => {
     setNotice(message);
@@ -149,6 +155,7 @@ export default function Drive() {
         initialWeather: "clear",
         initialTimeOfDay: 16.2,
         initialPaint: PAINT_COLORS[4],
+        worldTextures: textureOverrides,
       });
       gameRef.current = handle;
       handle.setPaused(true);

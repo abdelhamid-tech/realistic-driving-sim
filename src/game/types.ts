@@ -94,6 +94,10 @@ export interface GameOptions {
   initialWeather?: Weather;
   initialTimeOfDay?: number;
   initialPaint?: number;
+  /** URL per dressing slot the owner has overridden; absent = shipped texture */
+  worldTextures?: Partial<Record<string, string>>;
+  /** called when the ground textures finish loading */
+  onDressed?: () => void;
 }
 
 export interface GameHandle {

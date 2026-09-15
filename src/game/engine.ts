@@ -8,6 +8,7 @@ import {
   type MapField, type MapSpawn, type MapWall,
 } from "./mapbuild";
 import { isProcedural, type WorldMapSource } from "./worldmaps";
+import { loadWorldDress, applyWorldDress, type WorldDress } from "./worlddress";
 import {
   buildFleetTemplate, buildVehicle, cloneFleetVehicle, GROUND_LIFT, PAINT_COLORS,
   randomTrafficKind, VEHICLES,
@@ -161,6 +162,34 @@ export function createGame(opts: GameOptions): GameHandle {
      world map can switch the whole city off in one line. The grass plain
      stays: an imported map sits on the same landscape. */
   const worldRoot = new THREE.Group();
+
+  /* ------------------------------------------------------------ the ground
+   * The world's textures load in the background and are applied wherever
+   * they land — the built city or an imported map — once ready. The owner's
+   * global overrides (worldTextures) win over the shipped set.
+   */
+  let dress: WorldDress | null = null;
+  const dressTargets: THREE.Object3D[] = [];
+  {
+    const overrides: Partial<Record<string, string>> = {};
+    for (const [k, v] of Object.entries(opts.worldTextures ?? {})) {
+      if (v) overrides[k] = v;
+    }
+    loadWorldDress(overrides)
+      .then((d) => {
+        dress = d;
+        for (const t of dressTargets) applyWorldDress(t, d);
+        dressTargets.length = 0;
+        opts.onDressed?.();
+      })
+      .catch(() => {
+        /* no textures: the materials' own colours carry the world */
+      });
+  }
+  function dressScene(root: THREE.Object3D) {
+    if (dress) applyWorldDress(root, dress);
+    else dressTargets.push(root);
+  }
   scene.add(worldRoot);
 
   /* =====================================================================
@@ -630,6 +659,7 @@ export function createGame(opts: GameOptions): GameHandle {
   /* ------------------------------------------------ build the blocks/buildings */
   const city = buildCity({ aniso: MAX_ANISO });
   const cityRoot = city.root;
+  dressScene(cityRoot);
   const parkSpots = city.parkSpots;
   const parkedCarSpots = city.parkedCarSpots;
   const lampPoints = city.lampPoints;
@@ -3439,6 +3469,7 @@ export function createGame(opts: GameOptions): GameHandle {
 
   /** A GLB of a city is a lot of geometry: shadows are the first thing to go. */
   function dressMapModel(root: THREE.Object3D, heavy: boolean) {
+    dressScene(root);
     root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;

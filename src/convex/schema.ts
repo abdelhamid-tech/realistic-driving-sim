@@ -96,6 +96,16 @@ const schema = defineSchema(
       ),
       createdAt: v.number(),
     }).index("by_active", ["active"]),
+
+    // Global texture overrides: one row per dressing slot the owner has
+    // replaced. Everybody loads these; only the owner's key writes them.
+    worldAssets: defineTable({
+      slot: v.string(),
+      fileName: v.string(),
+      storageId: v.id("_storage"),
+      bytes: v.number(),
+      createdAt: v.number(),
+    }).index("by_slot", ["slot"]),
   },
   {
     schemaValidation: false,

@@ -25,21 +25,21 @@ import { geometryBuilder, writeGLB } from "./glb.mjs";
 
 /* ------------------------------------------------------------------ palette */
 const MATERIALS = [
-  { name: "asphalt",  color: [0.12, 0.13, 0.15], rough: 0.95 },
-  { name: "paint",    color: [0.86, 0.84, 0.76], rough: 0.7 },
-  { name: "concrete", color: [0.55, 0.53, 0.49], rough: 0.9 },
-  { name: "glass",    color: [0.26, 0.38, 0.47], rough: 0.28, metal: 0.45 },
-  { name: "brick",    color: [0.44, 0.28, 0.21], rough: 0.95 },
-  { name: "roof",     color: [0.19, 0.20, 0.22], rough: 0.95 },
-  { name: "water",    color: [0.06, 0.19, 0.27], rough: 0.18, metal: 0.1 },
-  { name: "grass",    color: [0.22, 0.33, 0.14], rough: 1 },
-  { name: "steel",    color: [0.55, 0.58, 0.62], rough: 0.5,  metal: 0.6 },
-  { name: "cable",    color: [0.82, 0.83, 0.85], rough: 0.35, metal: 0.7 },
-  { name: "sand",     color: [0.62, 0.56, 0.42], rough: 1 },
-  { name: "trunk",    color: [0.28, 0.21, 0.14], rough: 1 },
-  { name: "leaf",     color: [0.16, 0.29, 0.11], rough: 1 },
-  { name: "tile",     color: [0.58, 0.24, 0.18], rough: 0.9 },
-  { name: "yellow",   color: [0.85, 0.62, 0.10], rough: 0.8 },
+  { name: "asphalt",  color: [0.12, 0.13, 0.15], rough: 0.95, uv: 14 }, // one road tile ≈ 14 m: two lanes + kerbs
+  { name: "paint",    color: [0.86, 0.84, 0.76], rough: 0.7,  uv: 0 },  // no texture: paint stays flat
+  { name: "concrete", color: [0.55, 0.53, 0.49], rough: 0.9,  uv: 4 },
+  { name: "glass",    color: [0.26, 0.38, 0.47], rough: 0.28, metal: 0.45, uv: 0 },
+  { name: "brick",    color: [0.44, 0.28, 0.21], rough: 0.95, uv: 6 },
+  { name: "roof",     color: [0.19, 0.20, 0.22], rough: 0.95, uv: 0 },
+  { name: "water",    color: [0.06, 0.19, 0.27], rough: 0.18, metal: 0.1, uv: 40 },
+  { name: "grass",    color: [0.22, 0.33, 0.14], rough: 1,    uv: 5 },
+  { name: "steel",    color: [0.55, 0.58, 0.62], rough: 0.5,  metal: 0.6, uv: 0 },
+  { name: "cable",    color: [0.82, 0.83, 0.85], rough: 0.35, metal: 0.7, uv: 0 },
+  { name: "sand",     color: [0.62, 0.56, 0.42], rough: 1,    uv: 3 },
+  { name: "trunk",    color: [0.28, 0.21, 0.14], rough: 1,    uv: 0 },
+  { name: "leaf",     color: [0.16, 0.29, 0.11], rough: 1,    uv: 3 },
+  { name: "tile",     color: [0.58, 0.24, 0.18], rough: 0.9,  uv: 5 },
+  { name: "yellow",   color: [0.85, 0.62, 0.10], rough: 0.8,  uv: 0 },
 ];
 const M = Object.fromEntries(MATERIALS.map((m, i) => [m.name, i]));
 

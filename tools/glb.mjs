@@ -60,8 +60,19 @@ export function writeGLB({ materials, primitives, generator = "open-city-tools" 
       count: prim.indices.length,
       type: "SCALAR",
     });
+    const attrs = { POSITION: pos, NORMAL: nrm };
+    if (prim.uvs) {
+      const uvs = accessors.length;
+      accessors.push({
+        bufferView: addView(prim.uvs, 34962),
+        componentType: 5126,
+        count: prim.uvs.length / 2,
+        type: "VEC2",
+      });
+      attrs.TEXCOORD_0 = uvs;
+    }
     prims.push({
-      attributes: { POSITION: pos, NORMAL: nrm },
+      attributes: attrs,
       indices: idx,
       material: prim.material,
       mode: 4,
@@ -109,7 +120,14 @@ export function writeGLB({ materials, primitives, generator = "open-city-tools" 
 
 /** Collects triangles per material and hands back ready-made primitives. */
 export function geometryBuilder(materials) {
-  const buckets = materials.map(() => ({ positions: [], normals: [], indices: [], count: 0 }));
+  const buckets = materials.map((m) => ({
+    positions: [],
+    normals: [],
+    uvs: [],
+    indices: [],
+    count: 0,
+    uvScale: m.uv ?? 8,   // metres per texture tile; 0 disables UVs
+  }));
   const p = [0, 0, 0];
   const q = [0, 0, 0];
   const n = [0, 0, 0];
@@ -149,9 +167,18 @@ export function geometryBuilder(materials) {
       norm(n);
     }
     const base = bucket.count;
+    /* planar world-space UVs on the dominant normal axis, scaled to metres */
+    const doUv = bucket.uvScale > 0;
+    const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
     for (const v of [a, b, c]) {
       bucket.positions.push(v[0], v[1], v[2]);
       bucket.normals.push(n[0], n[1], n[2]);
+      if (doUv) {
+        const s = 1 / bucket.uvScale;
+        if (ay >= ax && ay >= az) bucket.uvs.push(v[0] * s, v[2] * s);
+        else if (ax >= az) bucket.uvs.push(v[2] * s, v[1] * s);
+        else bucket.uvs.push(v[0] * s, v[1] * s);
+      }
     }
     bucket.indices.push(base, base + 1, base + 2);
     bucket.count += 3;
@@ -201,6 +228,7 @@ export function geometryBuilder(materials) {
       .map((b, i) => ({
         positions: new Float32Array(b.positions),
         normals: new Float32Array(b.normals),
+        uvs: b.uvScale > 0 ? new Float32Array(b.uvs) : null,
         indices: new Uint32Array(b.indices),
         material: i,
       }))

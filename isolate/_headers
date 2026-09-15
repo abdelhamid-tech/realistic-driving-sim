@@ -1,0 +1,24 @@
+# Headers for static hosts that read public/_headers
+# (Netlify, Cloudflare Pages — the file is copied into the build output as-is).
+#
+# Who may put this game in an iframe: us, and CrazyGames. Nobody else.
+# frame-ancestors is the modern replacement for X-Frame-Options; the old header
+# cannot express "one other site", which is exactly what is needed here.
+# This has to be a real HTTP header — browsers ignore frame-ancestors inside a
+# <meta> tag — which is why it lives here and not in index.html.
+
+/*
+  Content-Security-Policy: frame-ancestors 'self' https://*.crazygames.com https://crazygames.com
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# The maps are immutable once built: cache them hard.
+/maps/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The icons and the Draco decoder can change; keep them fresh-ish.
+/draco/*
+  Cache-Control: public, max-age=604800
