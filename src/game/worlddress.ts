@@ -14,10 +14,14 @@
 import * as THREE from "three";
 
 export type DressSlot =
-  | "road" | "grass" | "concrete" | "sand" | "brick" | "leaf" | "water";
+  | "road" | "grass" | "concrete" | "sand" | "brick" | "leaf" | "water"
+  | "facadeGlass" | "facadeBrick" | "facadeConcrete" | "facadeShop"
+  | "corrugated" | "roofGravel" | "roofSlate" | "ground";
 
 export const DRESS_SLOTS: DressSlot[] = [
   "road", "grass", "concrete", "sand", "brick", "leaf", "water",
+  "facadeGlass", "facadeBrick", "facadeConcrete", "facadeShop",
+  "corrugated", "roofGravel", "roofSlate", "ground",
 ];
 
 export const DRESS_LABEL: Record<DressSlot, string> = {
@@ -25,9 +29,17 @@ export const DRESS_LABEL: Record<DressSlot, string> = {
   grass: "Grass & banks",
   concrete: "Concrete (kerbs, sidewalks, quays)",
   sand: "Sand & paths",
-  brick: "Brick (warehouses, homes)",
+  brick: "Brick (walls & chimneys)",
   leaf: "Foliage (trees, parks)",
   water: "Water (river & ponds)",
+  facadeGlass: "Tower glazing (one storey per repeat)",
+  facadeBrick: "Brick facade with windows",
+  facadeConcrete: "Concrete facade with balconies",
+  facadeShop: "Shopfront (one 4 m ground floor)",
+  corrugated: "Industrial cladding",
+  roofGravel: "Flat roof (membrane & gravel)",
+  roofSlate: "Pitched roof (slate)",
+  ground: "Bare ground (dirt, gravel, weeds)",
 };
 
 /** GLTF material names the shipped map uses, mapped to dressing slots. */
@@ -41,7 +53,22 @@ const NAME_TO_SLOT: [RegExp, DressSlot][] = [
   [/^concrete$/i, "concrete"],
   [/^brick$/i, "brick"],
   [/^tile$/i, "brick"],
+  [/^facadeglass$/i, "facadeGlass"],
+  [/^facadebrick$/i, "facadeBrick"],
+  [/^facadeconcrete$/i, "facadeConcrete"],
+  [/^facadeshop$/i, "facadeShop"],
+  [/^corrugated$/i, "corrugated"],
+  [/^roofgravel$/i, "roofGravel"],
+  [/^roofslate$/i, "roofSlate"],
+  [/^ground$/i, "ground"],
 ];
+
+/** Slots whose surface is not matte — glass has to stay glossy. */
+const SLOT_ROUGH: Partial<Record<DressSlot, [number, number]>> = {
+  water: [0.2, 0.1],
+  facadeGlass: [0.32, 0.25],
+  facadeShop: [0.45, 0.12],
+};
 
 export function slotForMaterial(name: string | undefined): DressSlot | null {
   if (!name) return null;
@@ -59,6 +86,9 @@ const aniso = () => 8;
 /** metres one texture tile spans on the ground, per slot */
 export const TILE_METRES: Record<DressSlot, number> = {
   road: 14, grass: 5, concrete: 4, sand: 3, brick: 6, leaf: 3, water: 40,
+  /* one storey per repeat on a facade, one 4 m shopfront, 3.6 m of cladding */
+  facadeGlass: 3.6, facadeBrick: 3.6, facadeConcrete: 3.6, facadeShop: 4,
+  corrugated: 3.6, roofGravel: 6, roofSlate: 3.6, ground: 7,
 };
 
 function tune(t: THREE.Texture) {
@@ -199,7 +229,9 @@ export function applyWorldDress(root: THREE.Object3D, dress: WorldDress) {
       if (!tex) continue;
       std.map = tex;
       std.color?.setScalar(1);      // the texture carries the colour now
-      std.roughness = slot === "water" ? 0.2 : 0.95;
+      const finish = SLOT_ROUGH[slot];
+      std.roughness = finish ? finish[0] : 0.95;
+      std.metalness = finish ? finish[1] : 0;
       std.needsUpdate = true;
     }
   });

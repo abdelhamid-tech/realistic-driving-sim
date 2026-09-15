@@ -31,9 +31,17 @@ const rnd = () => {
   return seed / 4294967296;
 };
 const rr = (a, b) => a + rnd() * (b - a);
+const pick = (arr) => arr[(rnd() * arr.length) | 0];
 
 function canvas() {
   const c = createCanvas(SIZE, SIZE);
+  return [c, c.getContext("2d")];
+}
+
+/* Facades tile one storey per repeat, so they do not need the full size. */
+const FACE = 512;
+function faceCanvas() {
+  const c = createCanvas(FACE, FACE);
   return [c, c.getContext("2d")];
 }
 
@@ -232,6 +240,269 @@ function drawWater() {
   save("water", c);
 }
 
+/* --------------------------------------------------------------- facades
+ *  What makes a block read as a real building rather than a box is the
+ *  window: these tiles are laid one storey per repeat, and the map's planar
+ *  world-space UVs put a row of windows on every floor of every wall.
+ * ------------------------------------------------------------------------ */
+
+/** a pane of glass with a soft sky reflection */
+function pane(x, px, py, pw, ph, base = "#33454e") {
+  x.fillStyle = base;
+  x.fillRect(px, py, pw, ph);
+  const g = x.createLinearGradient(px, py, px + pw, py + ph);
+  g.addColorStop(0, "rgba(206,226,238,0.30)");
+  g.addColorStop(0.45, "rgba(206,226,238,0.06)");
+  g.addColorStop(1, "rgba(24,32,36,0.22)");
+  x.fillStyle = g;
+  x.fillRect(px, py, pw, ph);
+}
+
+/** curtain wall: mullions, spandrel band, a few panes with the blinds shut */
+function drawFacadeGlass() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#4d5157";
+  x.fillRect(0, 0, w, h);
+  const panes = 4;
+  const pw = w / panes;
+  const top = h * 0.17;                 // spandrel / floor slab
+  for (let i = 0; i < panes; i++) {
+    const px = i * pw + 3;
+    const shut = rnd() < 0.14;
+    pane(x, px, top, pw - 6, h - top - 3, shut ? "#2b363d" : "#37505c");
+    if (shut) {
+      x.fillStyle = "rgba(226,224,214,0.5)";
+      for (let b = 0; b < 7; b++) x.fillRect(px + 2, top + 6 + b * ((h - top) / 8), pw - 10, 2);
+    }
+  }
+  /* spandrel: the concrete band that runs between the floors */
+  x.fillStyle = "#585b60";
+  x.fillRect(0, 0, w, top);
+  grain(x, w, top, 500, 12);
+  x.fillStyle = "rgba(255,255,255,0.16)";
+  x.fillRect(0, 0, w, 3);
+  x.fillStyle = "rgba(0,0,0,0.28)";
+  x.fillRect(0, top - 3, w, 3);
+  /* mullions */
+  x.fillStyle = "#828a90";
+  for (let i = 0; i <= panes; i++) x.fillRect(i * pw - 1.5, 0, 3, h);
+  x.fillStyle = "rgba(0,0,0,0.22)";
+  for (let i = 0; i <= panes; i++) x.fillRect(i * pw + 1.5, 0, 1, h);
+  save("facadeGlass", c);
+}
+
+/** brick wall with a sash window, a stone sill and a lintel */
+function drawFacadeBrick() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#714c39";
+  x.fillRect(0, 0, w, h);
+  const bh = h / 24;
+  for (let r = 0; r < 24; r++) {
+    const off = (r % 2) * (w / 12);
+    for (let col = -1; col < 12; col++) {
+      const g = rr(0, 24) | 0;
+      x.fillStyle = `rgb(${110 + g},${72 + g},${55 + g})`;
+      x.fillRect(col * (w / 6) + off + 2, r * bh + 2, w / 6 - 4, bh - 4);
+    }
+  }
+  grain(x, w, h, 1600, 14);
+  /* the window: two lights, white frame, stone sill */
+  const wx = w * 0.24, wy = h * 0.2, ww = w * 0.52, wh = h * 0.52;
+  x.fillStyle = "#efece1";
+  x.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
+  pane(x, wx, wy, ww, wh, "#2c3b43");
+  x.fillStyle = "#efece1";
+  x.fillRect(wx + ww / 2 - 3, wy, 6, wh);
+  x.fillRect(wx, wy + wh * 0.45, ww, 6);
+  /* sill + lintel */
+  x.fillStyle = "#b9b3a3";
+  x.fillRect(wx - 13, wy + wh + 7, ww + 26, 9);
+  x.fillStyle = "rgba(0,0,0,0.25)";
+  x.fillRect(wx - 13, wy + wh + 16, ww + 26, 4);
+  x.fillStyle = "#c6c0b0";
+  x.fillRect(wx - 13, wy - 18, ww + 26, 9);
+  /* a splash of grime under the sill */
+  x.fillStyle = "rgba(20,16,12,0.16)";
+  x.fillRect(wx - 13, wy + wh + 20, ww + 26, 26);
+  save("facadeBrick", c);
+}
+
+/** rendered concrete with a balcony band — the apartment block */
+function drawFacadeConcrete() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#a09a8e";
+  x.fillRect(0, 0, w, h);
+  grain(x, w, h, 2600, 18);
+  /* the balcony slab and its shadow, along the bottom of the storey */
+  x.fillStyle = "#8e887c";
+  x.fillRect(0, h * 0.66, w, h * 0.34);
+  x.fillStyle = "rgba(0,0,0,0.22)";
+  x.fillRect(0, h * 0.66, w, 6);
+  x.fillStyle = "rgba(255,255,255,0.14)";
+  x.fillRect(0, h * 0.99, w, 4);
+  /* railing */
+  x.fillStyle = "rgba(70,74,78,0.75)";
+  x.fillRect(0, h * 0.72, w, 4);
+  for (let i = 0; i < 10; i++) x.fillRect(i * (w / 10) + 4, h * 0.72, 3, h * 0.26);
+  /* two windows over the balcony */
+  for (const px of [w * 0.08, w * 0.56]) {
+    const ww = w * 0.36, wh = h * 0.4;
+    x.fillStyle = "#565349";
+    x.fillRect(px - 5, h * 0.2 - 5, ww + 10, wh + 10);
+    pane(x, px, h * 0.2, ww, wh, "#31424a");
+    x.fillStyle = "#565349";
+    x.fillRect(px + ww / 2 - 2.5, h * 0.2, 5, wh);
+  }
+  /* stained concrete streaks */
+  for (let i = 0; i < 14; i++) {
+    x.fillStyle = `rgba(60,56,50,${rr(0.03, 0.1).toFixed(3)})`;
+    x.fillRect(rr(0, w), 0, rr(2, 9), rr(h * 0.3, h));
+  }
+  save("facadeConcrete", c);
+}
+
+/** one 4 m ground floor: shopfront glazing, a door and a fascia sign */
+function drawFacadeShop() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  /* the fascia, with the shop's name band */
+  const band = h * 0.22;
+  x.fillStyle = "#3c3a38";
+  x.fillRect(0, 0, w, band);
+  const hue = pick(["#7c3a2e", "#2f4a52", "#4f4a30", "#3e4a3a", "#5a3550"]);
+  x.fillStyle = hue;
+  x.fillRect(6, band * 0.24, w - 12, band * 0.52);
+  x.fillStyle = "rgba(240,236,224,0.82)";
+  for (let i = 0; i < 3; i++) x.fillRect(24 + i * 34, band * 0.42, rr(14, 26), 7);
+  /* glazing: two big panes and a recessed door */
+  const gy = band, gh = h * 0.7;
+  x.fillStyle = "#2b2b2d";
+  x.fillRect(0, gy, w, gh);
+  pane(x, 8, gy + 8, w * 0.42, gh - 16, "#3a4d56");
+  pane(x, w * 0.5, gy + 8, w * 0.18, gh - 16, "#33454e");
+  pane(x, w * 0.72, gy + 8, w * 0.2, gh - 16, "#3a4d56");
+  /* the door: darker, with a handrail line */
+  x.fillStyle = "#232425";
+  x.fillRect(w * 0.5 + 4, gy + 14, w * 0.17, gh - 22);
+  x.fillStyle = "rgba(226,222,210,0.5)";
+  x.fillRect(w * 0.5 + 8, gy + gh * 0.62, w * 0.15, 3);
+  /* reflections and a mullion over everything */
+  x.fillStyle = "#2b2b2d";
+  x.fillRect(w * 0.47, gy, 6, gh);
+  x.fillRect(0, gy, w, 6);
+  /* plinth */
+  x.fillStyle = "#4a4744";
+  x.fillRect(0, h * 0.92, w, h * 0.08);
+  grain(x, w, h * 0.08, 300, 12);
+  save("facadeShop", c);
+}
+
+/** industrial corrugated cladding with a strip window */
+function drawCorrugated() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#8b8f92";
+  x.fillRect(0, 0, w, h);
+  for (let i = 0; i < w; i += 8) {
+    x.fillStyle = i % 16 === 0 ? "#7c8083" : "#969a9d";
+    x.fillRect(i, 0, 4, h);
+  }
+  grain(x, w, h, 1200, 12);
+  /* strip window */
+  const sy = h * 0.3, sh = h * 0.2;
+  x.fillStyle = "#5f6366";
+  x.fillRect(0, sy - 5, w, sh + 10);
+  pane(x, 0, sy, w, sh, "#2c3a40");
+  x.fillStyle = "#5f6366";
+  for (let i = 1; i < 4; i++) x.fillRect((i * w) / 4 - 3, sy, 6, sh);
+  /* rust runs and a concrete plinth */
+  for (let i = 0; i < 16; i++) {
+    x.fillStyle = `rgba(96,62,40,${rr(0.04, 0.13).toFixed(3)})`;
+    x.fillRect(rr(0, w), sy + sh, rr(2, 6), rr(10, 70));
+  }
+  x.fillStyle = "#6a6c6d";
+  x.fillRect(0, h * 0.86, w, h * 0.14);
+  save("corrugated", c);
+}
+
+/** a flat roof: membrane, gravel, joints and a couple of drains */
+function drawRoofGravel() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#6b6862";
+  x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++) {
+    const g = 96 + rr(0, 60) | 0;
+    x.fillStyle = `rgba(${g},${g - 3},${g - 8},${rr(0.2, 0.6).toFixed(2)})`;
+    x.fillRect(rr(0, w), rr(0, h), rr(1, 3), rr(1, 3));
+  }
+  /* membrane joints */
+  x.strokeStyle = "rgba(0,0,0,0.3)";
+  x.lineWidth = 4;
+  for (let k = 0; k <= 2; k++) {
+    x.beginPath();
+    x.moveTo((k * w) / 2, 0); x.lineTo((k * w) / 2, h);
+    x.moveTo(0, (k * h) / 2); x.lineTo(w, (k * h) / 2);
+    x.stroke();
+  }
+  /* patches, and one drain */
+  for (let i = 0; i < 5; i++) {
+    x.fillStyle = `rgba(${40 + (rr(0, 40) | 0)},${40 + (rr(0, 40) | 0)},40,${rr(0.1, 0.24).toFixed(2)})`;
+    x.fillRect(rr(0, w), rr(0, h), rr(60, 220), rr(60, 220));
+  }
+  x.fillStyle = "#3a3a38";
+  x.fillRect(w * 0.72, h * 0.2, 46, 46);
+  x.fillStyle = "rgba(255,255,255,0.2)";
+  x.fillRect(w * 0.72 + 6, h * 0.2 + 6, 34, 4);
+  save("roofGravel", c);
+}
+
+/** pitched roofs: staggered slate courses */
+function drawRoofSlate() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#33373c";
+  x.fillRect(0, 0, w, h);
+  const rows = 12;
+  const rh = h / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (w / 16);
+    for (let col = -1; col < 9; col++) {
+      const g = rr(0, 22) | 0;
+      x.fillStyle = `rgb(${52 + g},${57 + g},${63 + g})`;
+      x.fillRect(col * (w / 8) + off + 2, r * rh + 2, w / 8 - 4, rh - 4);
+    }
+  }
+  grain(x, w, h, 900, 12);
+  save("roofSlate", c);
+}
+
+/** the raw ground between the blocks: dirt, gravel, patches of grass */
+function drawGround() {
+  const [c, x] = faceCanvas();
+  const w = FACE, h = FACE;
+  x.fillStyle = "#6f6350";
+  x.fillRect(0, 0, w, h);
+  grain(x, w, h, 2200, 24);
+  for (let i = 0; i < 14; i++) {
+    const g = x.createRadialGradient(rr(0, w), rr(0, h), 6, rr(0, w), rr(0, h), rr(60, 200));
+    const green = rnd() < 0.55;
+    g.addColorStop(0, green ? "rgba(78,96,48,0.42)" : "rgba(112,96,70,0.34)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = g;
+    x.fillRect(0, 0, w, h);
+  }
+  for (let i = 0; i < 900; i++) {
+    const s = rr(1.4, 4.4);
+    x.fillStyle = `rgba(${120 + (rr(0, 50) | 0)},${116 + (rr(0, 46) | 0)},${104 + (rr(0, 40) | 0)},0.5)`;
+    x.fillRect(rr(0, w), rr(0, h), s, s);
+  }
+  save("ground", c);
+}
+
 drawRoad();
 drawGrass();
 drawConcrete();
@@ -239,4 +510,12 @@ drawSand();
 drawBrick();
 drawLeaf();
 drawWater();
+drawFacadeGlass();
+drawFacadeBrick();
+drawFacadeConcrete();
+drawFacadeShop();
+drawCorrugated();
+drawRoofGravel();
+drawRoofSlate();
+drawGround();
 console.log("done");

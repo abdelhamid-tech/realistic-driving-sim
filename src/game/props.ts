@@ -2,7 +2,8 @@
  *  THE PROP LAYER — real models for everything that stands on the street.
  *
  *  The world is not made of boxes any more. Every tree, every planting, every
- *  street lamp and every traffic light is a real model from the library in
+ *  street lamp, every traffic light — and every bench, bin, street sign,
+ *  awning, fence, container and chimney — is a real model from the library in
  *  public/models/props/, and each slot can be swapped for the owner's own GLB
  *  from the /assets door — for every player, in every session.
  *
@@ -34,9 +35,16 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 /* ------------------------------------------------------------------ slots */
 
-export type PropSlot = "tree" | "plant" | "lamp" | "signal";
+export type PropSlot =
+  | "tree" | "plant" | "lamp" | "signal"
+  | "bench" | "bin" | "dumpster" | "planter" | "sign" | "awning"
+  | "parasol" | "fence" | "container" | "tank" | "chimney" | "antenna" | "cone";
 
-export const PROP_SLOT_IDS: PropSlot[] = ["tree", "plant", "lamp", "signal"];
+export const PROP_SLOT_IDS: PropSlot[] = [
+  "tree", "plant", "lamp", "signal",
+  "bench", "bin", "dumpster", "planter", "sign", "awning",
+  "parasol", "fence", "container", "tank", "chimney", "antenna", "cone",
+];
 
 /** Where one prop stands. `y` is its base, in metres, above the world's zero. */
 export interface PropSpot {
@@ -73,6 +81,12 @@ export interface PropSlotInfo {
   variants: PropVariant[];
   /** should each spot get a random yaw? (foliage yes, a lamp post no) */
   scatter?: boolean;
+  /**
+   * Draw both faces. A flat sign, an awning or a fence panel has a front and
+   * a back that no measurement can tell apart, so they are drawn solid from
+   * both sides and a wrong turn can never leave the street with a blank prop.
+   */
+  doubleSide?: boolean;
   credit: string;
   license: string;
 }
@@ -83,6 +97,22 @@ const NATURE = {
 };
 const ROADS = {
   credit: "Kenney · City Kit Roads",
+  license: "CC0 (public domain)",
+};
+const SUBURBAN = {
+  credit: "Kenney · City Kit Suburban",
+  license: "CC0 (public domain)",
+};
+const COMMERCIAL = {
+  credit: "Kenney · City Kit Commercial",
+  license: "CC0 (public domain)",
+};
+const INDUSTRIAL = {
+  credit: "Kenney · City Kit Industrial",
+  license: "CC0 (public domain)",
+};
+const FURNITURE = {
+  credit: "Kenney · Furniture Kit",
   license: "CC0 (public domain)",
 };
 
@@ -98,6 +128,8 @@ export const PROP_SLOTS: PropSlotInfo[] = [
       { url: "models/props/tree-oak.glb" },
       { url: "models/props/tree-detailed.glb" },
       { url: "models/props/tree-pine.glb" },
+      { url: "models/props/suburban/tree-large.glb" },
+      { url: "models/props/suburban/tree-small.glb" },
     ],
     ...NATURE,
   },
@@ -120,7 +152,11 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     label: "Street lamps",
     hint: "7 m posts on the kerb — the arm is turned to reach over the road",
     height: 7,
-    variants: [{ url: "models/props/street-lamp.glb" }],
+    variants: [
+      { url: "models/props/street-lamp.glb" },
+      { url: "models/props/roads/light-curved.glb" },
+      { url: "models/props/roads/light-square.glb" },
+    ],
     ...ROADS,
   },
   {
@@ -132,6 +168,154 @@ export const PROP_SLOTS: PropSlotInfo[] = [
        model looking down +Z at yaw 0, so it is turned a quarter turn once,
        here, and every spot is then a plain facing */
     variants: [{ url: "models/props/traffic-light.glb", turn: 90 }],
+    ...ROADS,
+  },
+
+  /* ------------------------------------------------------ street furniture
+   *  Everything from here down is the furniture of the pavement: the bench
+   *  you sit on, the bin, the street name on its plate, the awning over the
+   *  shop, the fence around the garden, the container in the yard. Heights
+   *  are the real sizes the world records, not the models' own units: each
+   *  model is measured and scaled to fit the street.
+   * --------------------------------------------------------------------- */
+  {
+    id: "bench",
+    label: "Benches",
+    hint: "parks, the river walk and the mall — 0.92 m seat",
+    height: 0.92,
+    doubleSide: true,
+    variants: [{ url: "models/props/furniture/bench.glb" }],
+    ...FURNITURE,
+  },
+  {
+    id: "bin",
+    label: "Litter bins",
+    hint: "one on the kerb every few doors — 1.05 m",
+    height: 1.05,
+    variants: [{ url: "models/props/furniture/trashcan.glb" }],
+    ...FURNITURE,
+  },
+  {
+    id: "dumpster",
+    label: "Dumpsters",
+    hint: "in the service yards and behind the workshops — 1.4 m",
+    height: 1.4,
+    variants: [{ url: "models/props/roads/dumpster.glb" }],
+    ...ROADS,
+  },
+  {
+    id: "planter",
+    label: "Planters",
+    hint: "the beds along the kerb and on the plazas — 1.8 m wide",
+    height: 0.85,
+    variants: [
+      { url: "models/props/suburban/planter.glb" },
+      { url: "models/props/suburban/planter.glb", turn: 90 },
+    ],
+    ...SUBURBAN,
+  },
+  {
+    id: "sign",
+    label: "Road signs",
+    hint: "street names at the junctions, warnings and stops — 2.6 m",
+    height: 2.6,
+    doubleSide: true,
+    variants: [
+      { url: "models/props/sign-street.glb" },
+      { url: "models/props/sign-warning.glb" },
+      { url: "models/props/sign-stop.glb" },
+    ],
+    ...ROADS,
+  },
+  {
+    id: "awning",
+    label: "Shop awnings",
+    hint: "hung on the shopfronts of the main streets",
+    height: 1,
+    doubleSide: true,
+    variants: [
+      { url: "models/props/commercial/detail-awning-wide.glb" },
+      { url: "models/props/commercial/detail-awning.glb" },
+    ],
+    ...COMMERCIAL,
+  },
+  {
+    id: "parasol",
+    label: "Parasols",
+    hint: "the terraces by the park and the mall entrance — 2.6 m",
+    height: 2.6,
+    doubleSide: true,
+    variants: [
+      { url: "models/props/commercial/detail-parasol-a.glb" },
+      { url: "models/props/commercial/detail-parasol-b.glb" },
+    ],
+    ...COMMERCIAL,
+  },
+  {
+    id: "fence",
+    label: "Fences",
+    hint: "garden fences and the guard rails along the water — 1.3 m",
+    height: 1.3,
+    doubleSide: true,
+    variants: [{ url: "models/props/suburban/fence.glb" }],
+    ...SUBURBAN,
+  },
+  {
+    id: "container",
+    label: "Containers",
+    hint: "stacked in the industrial yards and on the quay — 6.1 m long",
+    height: 2.6,
+    /* the container lies along its own Z, which is the facing x and z of the
+       street: a spot yaw of 0 already puts it across the yard */
+    variants: [
+      { url: "models/props/industrial/shipping-container-a.glb" },
+      { url: "models/props/industrial/shipping-container-b.glb" },
+      { url: "models/props/industrial/shipping-container-c.glb" },
+    ],
+    ...INDUSTRIAL,
+  },
+  {
+    id: "tank",
+    label: "Storage tanks",
+    hint: "beside the halls and on the quay — industrial steel",
+    height: 2,
+    variants: [
+      { url: "models/props/industrial/detail-tank.glb" },
+      { url: "models/props/industrial/detail-tank-large.glb" },
+    ],
+    ...INDUSTRIAL,
+  },
+  {
+    id: "chimney",
+    label: "Chimneys & water towers",
+    hint: "12 m of brick and 16 m of water over the works rooftops",
+    height: 12,
+    variants: [
+      { url: "models/props/industrial/chimney-medium.glb" },
+      { url: "models/props/industrial/chimney-large.glb" },
+      { url: "models/props/industrial/water-tower.glb" },
+    ],
+    ...INDUSTRIAL,
+  },
+  {
+    id: "antenna",
+    label: "Roof antennas",
+    hint: "on the tower roofs — 1.2 m wide",
+    height: 0.5,
+    variants: [{ url: "models/props/furniture/televisionAntenna.glb" }],
+    ...FURNITURE,
+  },
+  {
+    id: "cone",
+    label: "Roadworks",
+    hint: "cones, barriers and fencing where a lane is closed",
+    height: 0.9,
+    doubleSide: true,
+    variants: [
+      { url: "models/props/roads/construction-cone.glb" },
+      { url: "models/props/roads/construction-barrier.glb" },
+      { url: "models/props/roads/construction-fence.glb" },
+    ],
     ...ROADS,
   },
 ];
@@ -286,7 +470,13 @@ function baseCentre(obj: THREE.Object3D, box: THREE.Box3): THREE.Vector3 {
  * Load one model and turn it into something that can be stamped down: standing
  * on its own base, sitting on y = 0 and scaled so it is `height` tall.
  */
-async function prepare(url: string, height: number, turn: number): Promise<Template | null> {
+async function prepare(
+  url: string,
+  height: number,
+  turn: number,
+  doubleSide = false,
+  edited?: Set<THREE.Material>,
+): Promise<Template | null> {
   try {
     const file = await gltf().loadAsync(url);
     const obj = file.scene as THREE.Object3D;
@@ -321,7 +511,9 @@ async function prepare(url: string, height: number, turn: number): Promise<Templ
           /* the shipped models are authored for a flat game look: keep them
              matte enough to sit inside the world's lighting */
           std.envMapIntensity = 0.45;
+          if (doubleSide) std.side = THREE.DoubleSide;
           std.needsUpdate = true;
+          edited.add(std);
         }
       }
       meshes.push(m);
@@ -364,6 +556,7 @@ export async function buildPropLayer(opts: PropLayerOptions): Promise<PropLayer>
   const overrides = new Map<PropSlot, PropModel>();
   for (const m of opts.models ?? []) if (isPropSlot(m.slot) && m.url) overrides.set(m.slot, m);
 
+  const edited = new Set<THREE.Material>();
   const jobs: { info: PropSlotInfo; spots: PropSpot[]; variants: PropVariant[]; height: number }[] = [];
   for (const info of PROP_SLOTS) {
     const spots = opts.spots[info.id];
@@ -380,7 +573,9 @@ export async function buildPropLayer(opts: PropLayerOptions): Promise<PropLayer>
   for (const job of jobs) {
     const list: Template[] = [];
     for (const variant of job.variants) {
-      const t = await prepare(variant.url, job.height, variant.turn ?? 0);
+      const t = await prepare(
+        variant.url, job.height, variant.turn ?? 0, job.info.doubleSide, edited,
+      );
       if (t) list.push(t);
       done++;
       opts.onProgress?.(done / total, job.info.label.toLowerCase());
@@ -441,6 +636,11 @@ export async function buildPropLayer(opts: PropLayerOptions): Promise<PropLayer>
       group.add(im);
       madeGeo.push(geo);
       for (const m of Array.isArray(mat) ? mat : [mat]) {
+        /* a material the layer re-sided is ours to put back when it goes */
+        if (edited.has(m)) {
+          (m as THREE.MeshStandardMaterial).side = THREE.FrontSide;
+          (m as THREE.MeshStandardMaterial).needsUpdate = true;
+        }
         if (seenMat.has(m)) continue;
         seenMat.add(m);
         madeMats.push(m);
