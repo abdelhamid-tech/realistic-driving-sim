@@ -29,13 +29,19 @@ const LAYER_MERGE = 0.55;
 const MAX_RISE = 1.05;
 /** Bucket size for the wall lookup. Metres. */
 const BUCKET = 24;
+/** Half thickness given to a wall face. Metres — thick enough not to be
+ *  tunnelled through between two physics steps at 240 Hz. */
+const WALL_T = 0.55;
 
 export interface MapWall {
-  /** centre and half extents in world XZ */
+  /** centre and half extents in the box's own frame */
   x: number;
   z: number;
   hx: number;
   hz: number;
+  /** unit vector along the wall face */
+  ux: number;
+  uz: number;
   /** top of the wall — body points above it pass over */
   top: number;
 }
@@ -93,8 +99,6 @@ export interface MapBuildOptions {
   cell?: number;
   /** vertical faces taller than this become walls (default 2.2) */
   wallHeight?: number;
-  /** minimum height given to a wall box (default 6) */
-  wallTop?: number;
   /** extra metres of field around the mesh (default 24) */
   pad?: number;
   /** gravity box: only triangles inside this are read */
@@ -114,7 +118,6 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
   const t0 = now();
   const cell = opts.cell ?? 4;
   const wallHeight = opts.wallHeight ?? 2.2;
-  const wallTop = opts.wallTop ?? 6;
   const pad = opts.pad ?? 24;
 
   /* ---------------------------------------------------- measure the mesh */
@@ -168,8 +171,6 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
   const layers = new Float32Array(nx * nz * LAYERS);
   const counts = new Uint8Array(nx * nz);
   const solid = new Uint8Array(nx * nz);
-  const wallTopCell = new Float32Array(nx * nz);
-  const used = new Uint8Array(nx * nz);
 
   /* --------------------------------------------------------- rasterise it */
   for (let i = 0; i + 8 < tris.length; i += 9) {
@@ -215,8 +216,10 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
     const j0 = clamp(Math.floor((tz0 - z0) / cell), 0, nz - 1);
     const j1 = clamp(Math.floor((tz1 - z0) / cell), 0, nz - 1);
 
-    if (nY > 0.5) {
-      /* a surface you could stand on: write its height on the cell grid */
+    if (Math.abs(nY) > 0.5) {
+      /* A surface you could stand on: write its height on the cell grid. The
+         sign is ignored because exported models arrive with their faces
+         wound either way — a street that faces down is still a street. */
       const flat = Math.abs(nY) > 1e-4;
       for (let j = j0; j <= j1; j++) {
         const cz2 = z0 + (j + 0.5) * cell;
@@ -249,15 +252,9 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
       }
     } else if (Math.abs(nY) < 0.35) {
       /* a vertical face: a wall if it is tall enough */
-      const fh = Math.max(ay, by, cy) - Math.min(ay, by, cy);
-      if (fh < wallHeight) continue;
-      const top = Math.max(ay, by, cy);
+      if (Math.max(ay, by, cy) - Math.min(ay, by, cy) < wallHeight) continue;
       for (let j = j0; j <= j1; j++) {
-        for (let i2 = i0; i2 <= i1; i2++) {
-          const idx = j * nx + i2;
-          solid[idx] = 1;
-          if (top > wallTopCell[idx]) wallTopCell[idx] = top;
-        }
+        for (let i2 = i0; i2 <= i1; i2++) solid[j * nx + i2] = 1;
       }
     }
   }
@@ -276,49 +273,84 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
   }
   if (!isFinite(topY)) topY = baseY;
 
-  /* ------------------------------------------------------- wall collision */
+  /* ------------------------------------------------------- wall collision
+     Collision boxes come from the wall faces themselves, not from the cell
+     grid: a grid cell is metres wide, so cell-shaped walls would stop the car
+     a cell early. Each tall vertical face becomes one thin box lying exactly
+     on the geometry — including the diagonal and curved walls the grid cannot
+     describe at all. The solid mask above is still used for picking a spawn
+     and for spotting holes. */
   const walls: MapWall[] = [];
-  for (let j = 0; j < nz; j++) {
-    for (let i = 0; i < nx; i++) {
-      const idx = j * nx + i;
-      if (!solid[idx] || used[idx]) continue;
-      /* stretch right then down: one box per rectangle of wall cells */
-      let w = 1;
-      while (i + w < nx && solid[idx + w] && !used[idx + w]) w++;
-      let d = 1;
-      outer: while (j + d < nz) {
-        for (let k = 0; k < w; k++) {
-          const nidx = (j + d) * nx + i + k;
-          if (!solid[nidx] || used[nidx]) break outer;
-        }
-        d++;
-      }
-      let top = wallTop;
-      for (let jj = j; jj < j + d; jj++) {
-        for (let ii = i; ii < i + w; ii++) {
-          used[jj * nx + ii] = 1;
-          const t = wallTopCell[jj * nx + ii];
-          if (t > top) top = t;
-        }
-      }
-      walls.push({
-        x: x0 + (i + w / 2) * cell,
-        z: z0 + (j + d / 2) * cell,
-        hx: (w * cell) / 2,
-        hz: (d * cell) / 2,
-        top,
-      });
+  /* a wall quad is two triangles, so every face arrives twice: keep one */
+  const seen = new Set<string>();
+  for (let i = 0; i + 8 < tris.length; i += 9) {
+    const ax = tris[i];
+    const ay = tris[i + 1];
+    const az = tris[i + 2];
+    const bx = tris[i + 3];
+    const by = tris[i + 4];
+    const bz = tris[i + 5];
+    const cx = tris[i + 6];
+    const cy = tris[i + 7];
+    const cz = tris[i + 8];
+    if (
+      !isFinite(ax) || !isFinite(bx) || !isFinite(cx) ||
+      !isFinite(az) || !isFinite(bz) || !isFinite(cz)
+    ) continue;
+    const ux0 = bx - ax;
+    const uy0 = by - ay;
+    const uz0 = bz - az;
+    const vx0 = cx - ax;
+    const vy0 = cy - ay;
+    const vz0 = cz - az;
+    const nxg = uy0 * vz0 - uz0 * vy0;
+    const nyg = uz0 * vx0 - ux0 * vz0;
+    const nzg = ux0 * vy0 - uy0 * vx0;
+    const nl = Math.hypot(nxg, nyg, nzg);
+    if (nl < 1e-9) continue;
+    if (Math.abs(nyg / nl) > 0.35) continue;   /* not a vertical face */
+    const tall = Math.max(ay, by, cy) - Math.min(ay, by, cy);
+    if (tall < wallHeight) continue;
+    /* the face's footprint is a line: take the widest pair of corners */
+    const d01 = (ax - bx) ** 2 + (az - bz) ** 2;
+    const d02 = (ax - cx) ** 2 + (az - cz) ** 2;
+    const d12 = (bx - cx) ** 2 + (bz - cz) ** 2;
+    let px = ax;
+    let pz = az;
+    let qx = cx;
+    let qz = cz;
+    if (d01 >= d02 && d01 >= d12) {
+      px = ax; pz = az; qx = bx; qz = bz;
+    } else if (d12 >= d01 && d12 >= d02) {
+      px = bx; pz = bz; qx = cx; qz = cz;
     }
+    const len = Math.hypot(qx - px, qz - pz);
+    if (len < 0.08) continue;
+    const q = (v: number) => Math.round(v * 20);   /* 5 cm of tolerance */
+    const key = `${q((px + qx) / 2)},${q((pz + qz) / 2)},${q(len)},${q(Math.max(ay, by, cy))}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    walls.push({
+      x: (px + qx) / 2,
+      z: (pz + qz) / 2,
+      hx: len / 2,
+      hz: WALL_T,
+      ux: (qx - px) / len,
+      uz: (qz - pz) / len,
+      top: Math.max(ay, by, cy),
+    });
   }
 
-  /* bucket the walls so the physics only tests what is under the car */
+  /* Bucket the walls so the physics only tests what is under the car. The
+     boxes are thin, so they are indexed by their true extent — shrinking by a
+     cell here would drop every wall between two buckets. */
   const buckets = new Map<number, number[]>();
   for (let w = 0; w < walls.length; w++) {
     const b = walls[w];
-    const i0 = Math.floor((b.x - b.hx + cell) / BUCKET);
-    const i1 = Math.floor((b.x + b.hx - cell) / BUCKET);
-    const j0 = Math.floor((b.z - b.hz + cell) / BUCKET);
-    const j1 = Math.floor((b.z + b.hz - cell) / BUCKET);
+    const i0 = Math.floor((b.x - b.hx) / BUCKET);
+    const i1 = Math.floor((b.x + b.hx) / BUCKET);
+    const j0 = Math.floor((b.z - b.hz) / BUCKET);
+    const j1 = Math.floor((b.z + b.hz) / BUCKET);
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const key = bucketKey(i, j);
@@ -480,18 +512,65 @@ export function findSpawn(F: MapField): MapSpawn {
     );
   };
 
+  /* a second table of the walls themselves: a street between buildings is a
+     better starting line than an empty field at the edge of the map */
+  const satSolid = new Float64Array((nx + 1) * (nz + 1));
+  for (let j = 0; j < nz; j++) {
+    let row = 0;
+    for (let i = 0; i < nx; i++) {
+      row += F.solid[j * nx + i] ? 1 : 0;
+      satSolid[(j + 1) * (nx + 1) + (i + 1)] = satSolid[j * (nx + 1) + (i + 1)] + row;
+    }
+  }
+  const solidWindow = (i0: number, j0: number, i1: number, j1: number) => {
+    const a = clamp(i0, 0, nx);
+    const b = clamp(j0, 0, nz);
+    const c = clamp(i1 + 1, 0, nx);
+    const d = clamp(j1 + 1, 0, nz);
+    return (
+      satSolid[d * (nx + 1) + c] - satSolid[b * (nx + 1) + c] -
+      satSolid[d * (nx + 1) + a] + satSolid[b * (nx + 1) + a]
+    );
+  };
+
+  /* how much city is around: wide enough to notice a street grid */
+  const W = Math.max(R + 2, Math.round(70 / F.cell));
+  const cx = (nx - 1) / 2;
+  const cz = (nz - 1) / 2;
+  const half = Math.max(1, Math.hypot(cx, cz));
+
   let bestScore = -Infinity;
   let best = { i: nx >> 1, j: nz >> 1 };
-  for (let j = R; j < nz - R; j++) {
-    for (let i = R; i < nx - R; i++) {
+  for (let j = W; j < nz - W; j++) {
+    for (let i = W; i < nx - W; i++) {
       const idx = j * nx + i;
       if (F.solid[idx] || !F.counts[idx]) continue;
       const open = window(i - R, j - R, i + R, j + R) / ((2 * R + 1) * (2 * R + 1));
+      if (open < 0.985) continue;                 /* room to put a car down */
+      const city = solidWindow(i - W, j - W, i + W, j + W) / ((2 * W + 1) * (2 * W + 1));
+      const centre = 1 - Math.hypot(i - cx, j - cz) / half;
       const level = -Math.abs(F.layers[idx * LAYERS] - F.baseY) * 0.35;
-      const score = open + level;
+      const score = open + city * 0.9 + centre * 0.2 + level;
       if (score > bestScore) {
         bestScore = score;
         best = { i, j };
+      }
+    }
+  }
+
+  if (bestScore === -Infinity) {
+    /* nothing is fully clear (a tight old town, or a model that is all
+       building): fall back to the most open cell there is */
+    let bestOpen = -1;
+    for (let j = R; j < nz - R; j++) {
+      for (let i = R; i < nx - R; i++) {
+        const idx = j * nx + i;
+        if (F.solid[idx] || !F.counts[idx]) continue;
+        const open = window(i - R, j - R, i + R, j + R) / ((2 * R + 1) * (2 * R + 1));
+        if (open > bestOpen) {
+          bestOpen = open;
+          best = { i, j };
+        }
       }
     }
   }

@@ -3,6 +3,8 @@ import { buildMapField, sampleMap, layersAt, wallsNear, findSpawn } from "./src/
 
 type Tri = number[];
 
+const clampI = (v: number, n: number) => (v < 0 ? 0 : v > n - 1 ? n - 1 : v);
+
 function box(tris: Tri[], x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
   const p: [number, number, number][] = [
     [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
@@ -56,9 +58,27 @@ function check(name: string, ok: boolean, extra = "") {
   const outside = wallsNear(F, 0, 0, []);
   check("no wall reported in the open middle", outside.length === 0, `${outside.length} boxes`);
 
-  const w = F.walls.find((b) => Math.abs(b.x - (-150)) < 40 && Math.abs(b.z - (-150)) < 40)!;
-  check("a wall box sits on the building footprint", !!w, w ? `centre ${w.x.toFixed(0)},${w.z.toFixed(0)} half ${w.hx}x${w.hz} top ${w.top.toFixed(1)}` : "none");
-  check("wall boxes cover the footprint", !!w && w.hx > 2 && w.hz > 2 && w.top > 20);
+  const bx0 = -185;
+  const bz0 = -185;
+  /* the wall mask must ring the building: edges solid, inside open */
+  const cellAt = (x: number, z: number) => {
+    const i = clampI(Math.floor((x - F.x0) / F.cell), F.nx);
+    const j = clampI(Math.floor((z - F.z0) / F.cell), F.nz);
+    return F.solid[j * F.nx + i];
+  };
+  check("the walls around a building are marked solid", cellAt(bx0, bz0) === 1 && cellAt(bx0 + 70, bz0) === 1, `west ${cellAt(bx0, bz0)} east ${cellAt(bx0 + 70, bz0)}`);
+  check("the street beside it is not", cellAt(-100, -150) === 0 && cellAt(-100, 0) === 0, `gap ${cellAt(-100, -150)} plaza ${cellAt(-100, 0)}`);
+
+  /* the box has to lie on the geometry, not on the cell that contains it */
+  const edge = F.walls.filter((b) => Math.abs(b.x - bx0) < 1);
+  check("a wall box lies on the building edge", edge.length > 0, `${edge.length} boxes at x=${bx0}`);
+  check("the wall is not one grid cell thick", edge.every((b) => b.hz < 1), `half thickness ${[...new Set(edge.map((b) => b.hz.toFixed(2)))].join(",")}`);
+  check("a wall face is as long as the wall", edge.some((b) => Math.abs(b.hx - 35) < 0.2), `halves ${[...new Set(edge.map((b) => b.hx.toFixed(1)))].join(",")} (building is 70 m wide)`);
+  check("one box per face, not two", F.walls.length === 48, `${F.walls.length} boxes for 12 buildings = ${F.walls.length / 12} per building`);
+  const tall = F.walls.filter((b) => Math.abs(b.x - 150) < 60 && Math.abs(b.z - 150) < 60);
+  check("wall height follows the building", tall.some((b) => Math.abs(b.top - 39) < 0.5), `tops ${[...new Set(tall.map((b) => b.top.toFixed(0)))].join(",")} (building is 39 m)`);
+  const diagonal = F.walls.filter((b) => Math.abs(b.uz) > 0.01 && Math.abs(b.uz) < 0.99);
+  check("no diagonal boxes were invented for axis-aligned walls", diagonal.length === 0, `${diagonal.length} skewed`);
 
   const sp = findSpawn(F);
   const spH = sampleMap(F, sp.x, sp.z, F.baseY + 0.5)!;
@@ -89,7 +109,10 @@ function check(name: string, ok: boolean, extra = "") {
   check("driving on the deck stays at deck level", Math.abs(sampleMap(F, 0, 0, 9.4)! - 9) < 0.4, `h=${sampleMap(F, 0, 0, 9.4)!.toFixed(2)}`);
   check("off the deck, only the street exists", layersAt(F, 0, -120).length === 1, `layers=${layersAt(F, 0, -120).map((h) => h.toFixed(1)).join(",")}`);
   const pillar = wallsNear(F, 0, 0, []);
-  check("pillars are walls", pillar.some((b) => b.hx < 6 && b.hz < 6), `${pillar.length} boxes near the middle`);
+  const nextPillar = wallsNear(F, 50, 0, []);
+  check("the physics can find a pillar", nextPillar.some((b) => Math.abs(b.x - 50) < 0.5 && b.hz < 1 && b.top > 8), `${nextPillar.length} boxes in reach at x=50`);
+  const pillarBox = F.walls.find((b) => Math.abs(b.x - 50) < 0.5 && b.hz < 1)!;
+  check("the pillar box is 4 m of wall, not a 4 m cell", !!pillarBox && Math.abs(pillarBox.hx - 2) < 0.1, pillarBox ? `crosses ${(pillarBox.hx * 2).toFixed(1)} m of the 4 m face` : "none");
 
   /* the car must never be launched by a cell it cannot reach */
   let worst = 0;
