@@ -513,7 +513,7 @@ async function prepare(
           std.envMapIntensity = 0.45;
           if (doubleSide) std.side = THREE.DoubleSide;
           std.needsUpdate = true;
-          edited.add(std);
+          edited?.add(std);
         }
       }
       meshes.push(m);
