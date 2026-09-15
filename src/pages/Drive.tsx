@@ -147,6 +147,9 @@ export default function Drive() {
   const [roomDraft, setRoomDraft] = useState(readRoom);
   const [netOn, setNetOn] = useState(true);
   const [netState, setNetState] = useState<"idle" | "connecting" | "live" | "error">("idle");
+  /* what the relay actually said when it refused a position, so a failure is
+     readable instead of a bare "RETRYING" */
+  const [netError, setNetError] = useState<string | null>(null);
   const [session] = useState(makeSession);
 
   /* the world we are driving on: the built city, or an imported map */
@@ -475,15 +478,22 @@ export default function Drive() {
   useEffect(() => {
     if (!started || !netOn) {
       if (started) setNetState("idle");
+      setNetError(null);
       return;
     }
     setNetState("connecting");
+    setNetError(null);
     let beat = 0;
     const tick = () => {
       const game = gameRef.current;
       if (!game || document.hidden) return;
       const s = game.netSnapshot();
       if (!s) return;
+      /* One non-finite number — a physics blow-up on a bad frame, a car that
+         fell out of the world — makes the server reject the WHOLE publish, and
+         a rejection keeps repeating until the car is sane again. Skip the
+         frame instead and let the last good position stand. */
+      if (![s.x, s.y, s.z, s.yaw, s.speed].every((n) => Number.isFinite(n))) return;
       const info = infoRef.current;
       const seq = ++beat;
       void publishRef
@@ -502,10 +512,17 @@ export default function Drive() {
           speed: s.speed,
         })
         .then(() => {
-          if (seq === beat) setNetState("live");
+          if (seq === beat) {
+            setNetState("live");
+            setNetError(null);
+          }
         })
-        .catch(() => {
-          if (seq === beat) setNetState("error");
+        .catch((err: unknown) => {
+          if (seq !== beat) return;
+          setNetState("error");
+          /* the reason, verbatim: a bare "RETRYING" tells the driver nothing,
+             and this is the one place the server's own words can be read */
+          setNetError(err instanceof Error ? err.message : String(err));
         });
     };
     tick();
@@ -524,6 +541,7 @@ export default function Drive() {
       document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", onPageHide);
       setNetState("idle");
+      setNetError(null);
       void leaveRef.current({ session }).catch(() => {});
     };
   }, [started, netOn, room, session]);
@@ -1137,6 +1155,12 @@ export default function Drive() {
                 {!netOn ? "OFFLINE" : netState === "live" ? "LIVE" : netState === "error" ? "RETRYING" : "CONNECTING"}
               </span>
             </div>
+
+            {netOn && netError && (
+              <p className="mt-1.5 border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10px] leading-relaxed text-destructive">
+                RELAY · {netError}
+              </p>
+            )}
 
             <div className="mt-3 border border-white/10 bg-white/4">
               <div className="flex items-center gap-1.5 border-b border-white/8 px-2 py-1.5 font-mono text-[9px] tracking-[0.22em] text-muted-foreground">

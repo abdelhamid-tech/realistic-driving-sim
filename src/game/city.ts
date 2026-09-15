@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { recordPropSpot, type PropAnchor, type PropSlot, type PropSpotMap } from "./props";
+import { tileInMetres } from "./worlddress";
 
 /* ============================================================================
  *  APEX CITY — the built environment.
@@ -490,9 +491,16 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
     x.fillStyle = "rgba(0,0,0,.10)";
     x.fillRect(0, 0, w, 3);
   }, aniso);
-  sidewalkMat.map.repeat.set(0.25, 0.25);
+  /* the canvas holds a 4 x 4 grid of flags, so it tiles every 4 m: one flag
+     is a metre of pavement, whether the slab wearing it is 3 m or 13 m wide */
+  tileInMetres(sidewalkMat, 4);
+  sidewalkMat.name = "concrete";
   const curbMat = new THREE.MeshStandardMaterial({ color: 0xb3b0a8, roughness: 0.9, envMapIntensity: 0.35 });
   const curbMatDark = new THREE.MeshStandardMaterial({ color: 0x8e8b84, roughness: 0.95, envMapIntensity: 0.3 });
+  tileInMetres(curbMat, 4);
+  tileInMetres(curbMatDark, 4);
+  curbMat.name = "concrete";
+  curbMatDark.name = "concrete";
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x4a4c4f, roughness: 0.97, envMapIntensity: 0.25 });
   roofMat.map = canvasTex(128, 128, (x, w, h) => {
     x.fillStyle = "#4c4e51";
@@ -500,11 +508,15 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
     noiseOn(x, w, h, 2600, 0.09);
     noiseOn(x, w, h, 900, 0.06, false);
   }, aniso);
-  roofMat.map.repeat.set(0.12, 0.12);
+  tileInMetres(roofMat, 3);
   const gravelMat = new THREE.MeshStandardMaterial({ color: 0x5a5c5e, roughness: 1, envMapIntensity: 0.2 });
+  tileInMetres(gravelMat, 3);
+  gravelMat.name = "sand";
   const metalMat = new THREE.MeshStandardMaterial({ color: 0x8e9499, roughness: 0.45, metalness: 0.7, envMapIntensity: 0.8 });
   const darkMetalMat = new THREE.MeshStandardMaterial({ color: 0x33363a, roughness: 0.55, metalness: 0.6, envMapIntensity: 0.6 });
   const concreteMat = new THREE.MeshStandardMaterial({ color: 0xa5a29b, roughness: 0.92, envMapIntensity: 0.35 });
+  tileInMetres(concreteMat, 4);
+  concreteMat.name = "concrete";
   const glassShopMat = new THREE.MeshStandardMaterial({
     color: 0x1c242c, roughness: 0.12, metalness: 0.55, envMapIntensity: 1.2,
     emissive: 0xffce8a, emissiveIntensity: 0.03,
@@ -513,7 +525,11 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
   const billboardMats: THREE.MeshStandardMaterial[] = [];
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x6f5637, roughness: 0.9, envMapIntensity: 0.25 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x3d5a2c, roughness: 1, envMapIntensity: 0.25 });
+  tileInMetres(leafMat, 3);
+  leafMat.name = "leaf";
   const grassMat = new THREE.MeshStandardMaterial({ color: 0x5c6b3a, roughness: 1, envMapIntensity: 0.25 });
+  tileInMetres(grassMat, 5);
+  grassMat.name = "grass";
   const puddleMat = new THREE.MeshStandardMaterial({
     color: 0x14181d, roughness: 0.06, metalness: 0.75, envMapIntensity: 1.6,
     transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5,
@@ -546,6 +562,10 @@ export function buildCity(opts: { aniso: number; seed?: number }): City {
     color: 0x22414a, roughness: 0.04, metalness: 0.65, envMapIntensity: 1.7,
     transparent: true, opacity: 0.86,
   });
+  /* the ponds and the basin: 40 m of water per tile, so a rippled sheet reads
+     as water rather than as a tiled pattern */
+  tileInMetres(waterMat, 40);
+  waterMat.name = "water";
   const greenMat = new THREE.MeshStandardMaterial({ color: 0x1e4b33, roughness: 0.58, metalness: 0.2, envMapIntensity: 0.5 });
   const canvasMat = new THREE.MeshStandardMaterial({
     map: canvasTex(128, 128, (x, w, h) => {

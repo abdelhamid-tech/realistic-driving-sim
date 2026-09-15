@@ -120,11 +120,68 @@ export async function loadWorldDress(
   };
 }
 
+/* ------------------------------------------------------------------ tiling
+ *  A world that is not an imported map does not bring world-space UVs: the
+ *  procedural city scales boxes per instance, so a slab drawn 13 m long would
+ *  wear one 4 m tile stretched over it. This patches a material so the map is
+ *  sampled in METRES wherever the surface is, whatever it was scaled to — the
+ *  same trick the city's facades already use for their window bays.
+ *
+ *  `window` samples part of the tile instead of all of it: the shipped road
+ *  tile is a whole street (kerbs + lane markings), and its middle band is
+ *  plain tarmac, which is what a city that builds its own kerbs and markings
+ *  wants to wear.
+ * -------------------------------------------------------------------------*/
+
+export interface TileWindow {
+  /** where the plain band starts in the tile, 0..1 */
+  offset: [number, number];
+  /** how wide that band is, 0..1 — it repeats inside itself */
+  span: [number, number];
+}
+
+export function tileInMetres(
+  mat: THREE.MeshStandardMaterial,
+  metresPerRepeat: number | [number, number],
+  window?: TileWindow,
+) {
+  const rx = typeof metresPerRepeat === "number" ? metresPerRepeat : metresPerRepeat[0];
+  const ry = typeof metresPerRepeat === "number" ? metresPerRepeat : metresPerRepeat[1];
+  const off = window ? window.offset : null;
+  const span = window ? window.span : null;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTileM = { value: new THREE.Vector2(rx, ry) };
+    shader.uniforms.uWinOff = { value: new THREE.Vector2(off?.[0] ?? 0, off?.[1] ?? 0) };
+    shader.uniforms.uWinSpan = { value: new THREE.Vector2(span?.[0] ?? 1, span?.[1] ?? 1) };
+    shader.vertexShader = "uniform vec2 uTileM;\nuniform vec2 uWinOff;\nuniform vec2 uWinSpan;\n" + shader.vertexShader.replace(
+      "#include <uv_vertex>",
+      `#include <uv_vertex>
+      #ifdef USE_MAP
+        /* the surface's own size in metres, in its local frame: an instance
+           matrix carries the scale, a plain mesh is already in metres */
+        vec3 mM = position;
+        #ifdef USE_INSTANCING
+          mM *= vec3(
+            length(instanceMatrix[0]), length(instanceMatrix[1]), length(instanceMatrix[2]));
+        #endif
+        vec3 mn = abs(normal);
+        vec2 mUV = mn.y > max(mn.x, mn.z)
+          ? mM.xz
+          : (mn.x > mn.z ? mM.zy : mM.xy);
+        vMapUv = uWinOff + fract(mUV / uTileM) * uWinSpan;
+      #endif`,
+    );
+  };
+  mat.needsUpdate = true;
+}
+
 /**
  * Apply a dressing set to a whole scene: every material whose GLTF name maps
  * to a slot gets that slot's texture, with the repeat matching the map's
  * world-space UVs (which are already in metres / TILE_METRES — so repeat 1).
- * Materials keep their own colour, roughness and metalness.
+ * A material that tiles itself in metres (see tileInMetres) keeps its own
+ * mapping and just wears the texture. Materials keep their roughness, except
+ * water, which has to stay glossy.
  */
 export function applyWorldDress(root: THREE.Object3D, dress: WorldDress) {
   const seen = new Set<THREE.Material>();

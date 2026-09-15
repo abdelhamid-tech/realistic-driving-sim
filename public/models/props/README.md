@@ -16,6 +16,24 @@ Everything here is **CC0 (public domain)** — see `LICENSE-kenney-nature.txt`
 and `LICENSE-kenney-roads.txt` next to the models. The roads kit models share
 one atlas, `Textures/colormap.png`; keep it where it is.
 
+## Which way a model faces
+
+A world records a *facing* with every spot, and a facing is a compass bearing:
+**yaw 0 points at +Z**, a quarter turn points at +X, and so on. A model has to
+agree with that, so each variant may declare a `turn`, in degrees, applied
+once before the spot's own yaw.
+
+| Model | Where it looks | Turn |
+| --- | --- | --- |
+| `tree-*`, `bush-*`, `plant-flat`, `flower-red` | anywhere (they are scattered) | 0 |
+| `street-lamp.glb` | its **arm** reaches down **-Z** | 0 — the city's lamp yaws are built for that |
+| `traffic-light.glb` | its head plate looks down **-X** | **90°**, which points it at +Z |
+
+`bun run src/tools/check-props.ts` reads these models' own vertices and checks
+the result: that the signal's head ends up pointing where yaw 0 points, that
+every lamp arm reaches over the road it stands beside, and that each junction
+has exactly one light facing each of its four approaches.
+
 ## Replacing a model
 
 Two ways, both without touching the engine:

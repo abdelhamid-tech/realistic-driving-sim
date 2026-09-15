@@ -128,7 +128,10 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     label: "Traffic lights",
     hint: "at every junction — the head is turned to face the traffic it stops",
     height: 5.6,
-    variants: [{ url: "models/props/traffic-light.glb" }],
+    /* the shipped head looks down its own -X; the world's junctions expect a
+       model looking down +Z at yaw 0, so it is turned a quarter turn once,
+       here, and every spot is then a plain facing */
+    variants: [{ url: "models/props/traffic-light.glb", turn: 90 }],
     ...ROADS,
   },
 ];
@@ -249,8 +252,39 @@ interface Template {
 }
 
 /**
- * Load one model and turn it into something that can be stamped down: centred
- * on its own footprint, sitting on y = 0 and scaled so it is `height` tall.
+ * Where a model actually stands: the centre of its lowest slice, not of its
+ * bounding box. A street lamp's arm and a signal's head hang out over the
+ * road, and centring on the box would push their post off the kerb — the post
+ * is what the world recorded a spot for.
+ */
+function baseCentre(obj: THREE.Object3D, box: THREE.Box3): THREE.Vector3 {
+  const fallback = box.getCenter(new THREE.Vector3());
+  const slice = Math.max((box.max.y - box.min.y) * 0.06, 0.01);
+  let n = 0;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  const v = new THREE.Vector3();
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const p = m.geometry?.attributes?.position;
+    if (!p) return;
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p as THREE.BufferAttribute, i).applyMatrix4(m.matrixWorld);
+      if (v.y > box.min.y + slice) continue;
+      n++;
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+      if (v.z < minZ) minZ = v.z;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+  });
+  if (n < 3 || !isFinite(minX) || !isFinite(minZ)) return fallback;
+  return new THREE.Vector3((minX + maxX) / 2, box.min.y, (minZ + maxZ) / 2);
+}
+
+/**
+ * Load one model and turn it into something that can be stamped down: standing
+ * on its own base, sitting on y = 0 and scaled so it is `height` tall.
  */
 async function prepare(url: string, height: number, turn: number): Promise<Template | null> {
   try {
@@ -261,15 +295,15 @@ async function prepare(url: string, height: number, turn: number): Promise<Templ
     const size = box.getSize(new THREE.Vector3());
     const tall = size.y > 0.0001 ? size.y : Math.max(size.x, size.z, 0.0001);
     const s = height / tall;
-    const centre = box.getCenter(new THREE.Vector3());
+    const base = baseCentre(obj, box);
 
     const root = new THREE.Group();
     root.rotation.y = THREE.MathUtils.degToRad(turn);
     const holder = new THREE.Group();
     holder.scale.setScalar(s);
-    /* the model's own origin is wherever its author put it: move its footprint
-       centre onto ours and drop its lowest point onto the ground */
-    holder.position.set(-centre.x * s, -box.min.y * s, -centre.z * s);
+    /* the model's own origin is wherever its author put it: move its base onto
+       ours and drop its lowest point onto the ground */
+    holder.position.set(-base.x * s, -box.min.y * s, -base.z * s);
     holder.add(obj);
     root.add(holder);
     root.updateMatrixWorld(true);

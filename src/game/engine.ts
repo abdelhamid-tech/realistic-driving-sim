@@ -8,7 +8,7 @@ import {
   type MapField, type MapSpawn, type MapWall,
 } from "./mapbuild";
 import { isProcedural, type WorldMapSource } from "./worldmaps";
-import { loadWorldDress, applyWorldDress, type WorldDress } from "./worlddress";
+import { loadWorldDress, applyWorldDress, tileInMetres, type WorldDress } from "./worlddress";
 import {
   buildFleetTemplate, buildVehicle, cloneFleetVehicle, GROUND_LIFT, PAINT_COLORS,
   randomTrafficKind, VEHICLES,
@@ -359,6 +359,21 @@ export function createGame(opts: GameOptions): GameHandle {
     return m;
   }
 
+  /* The tarmac the city drives on.
+   *
+   * Laid down in METRES rather than per plane, so a street, the plaza and the
+   * ribbon ring all wear the same tarmac at the same size however they were
+   * built — and it is the shipped road tile's plain-asphalt band (the tile is
+   * a whole street: kerbs and lane markings included, which a city that draws
+   * its own kerbs and markings must not wear twice), sampled every 5 m. */
+  const TARMAC_WINDOW = { offset: [0.13, 0.02] as [number, number], span: [0.09, 0.09] as [number, number] };
+  const tarmacMat = new THREE.MeshStandardMaterial({
+    map: asphBase.clone(), roughness: 0.96, metalness: 0.0, envMapIntensity: 0.35,
+  });
+  tileInMetres(tarmacMat, 5, TARMAC_WINDOW);
+  tarmacMat.name = "road";
+  asphaltMats.push(tarmacMat);
+
   const paintMat = new THREE.MeshStandardMaterial({
     color: 0xdcd8cc, roughness: 0.9, envMapIntensity: 0.3,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
@@ -551,9 +566,9 @@ export function createGame(opts: GameOptions): GameHandle {
     worldRoot.add(m);
     return m;
   }
-  flatPlane(206, 206, 0, 0, 0.02, asphaltMat(48, 48));
-  flatPlane(16, 806, 0, 447, 0.045, asphaltMat(2, 100));
-  flatPlane(16, 806, 0, -447, 0.043, asphaltMat(2, 100));
+  flatPlane(206, 206, 0, 0, 0.02, tarmacMat);
+  flatPlane(16, 806, 0, 447, 0.045, tarmacMat);
+  flatPlane(16, 806, 0, -447, 0.043, tarmacMat);
 
   {
     const cps = [[560, 36], [450, 450], [110, 690], [-335, 650], [-690, 335], [-725, -150], [-520, -560], [-110, -745], [355, -800], [670, -335]]
@@ -586,7 +601,7 @@ export function createGame(opts: GameOptions): GameHandle {
     g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
-    const road = new THREE.Mesh(g, asphaltMat(1, 1));
+    const road = new THREE.Mesh(g, tarmacMat);
     road.receiveShadow = true;
     worldRoot.add(road);
 
@@ -751,19 +766,24 @@ export function createGame(opts: GameOptions): GameHandle {
   void applyCityProps();
 
   {
-    const streetMat = asphaltMat(2, 72);
+    /* the grid: every street wears the same tarmac, in metres, so it never
+       stretches along the block it runs past */
     for (const c of STREETS) {
-      const ns = new THREE.Mesh(new THREE.PlaneGeometry(14, 2 * CITY_R), streetMat);
+      const ns = new THREE.Mesh(new THREE.PlaneGeometry(14, 2 * CITY_R), tarmacMat);
       ns.rotation.x = -Math.PI / 2;
       ns.position.set(c, 0.03, 0);
       ns.receiveShadow = true;
       cityRoot.add(ns);
-      const ew = new THREE.Mesh(new THREE.PlaneGeometry(2 * CITY_R, 14), streetMat);
+      const ew = new THREE.Mesh(new THREE.PlaneGeometry(2 * CITY_R, 14), tarmacMat);
       ew.rotation.x = -Math.PI / 2;
       ew.position.set(0, 0.032, c);
       ew.receiveShadow = true;
       cityRoot.add(ew);
     }
+    /* the dressing lands on whatever exists when it arrives: the streets are
+       built after the blocks, and the plaza and the ribbon ring hang off the
+       world root, so the whole world asks again — one tarmac everywhere */
+    dressScene(worldRoot);
   }
 
   /* skid pad markings */
