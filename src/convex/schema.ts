@@ -106,6 +106,22 @@ const schema = defineSchema(
       bytes: v.number(),
       createdAt: v.number(),
     }).index("by_slot", ["slot"]),
+
+    // Cars the owner has imported: every player sees them in the garage,
+    // appended to the built-in library. Only the owner's key writes here.
+    importedCars: defineTable({
+      name: v.string(),
+      fileName: v.string(),
+      storageId: v.id("_storage"),
+      bytes: v.number(),
+      /** which driving character this car has */
+      preset: v.string(),
+      /** degrees; 180 for a model the rigger points backwards */
+      turn: v.optional(v.number()),
+      /** the one-line class shown on the garage card */
+      klass: v.optional(v.string()),
+      createdAt: v.number(),
+    }).index("by_created", ["createdAt"]),
   },
   {
     schemaValidation: false,

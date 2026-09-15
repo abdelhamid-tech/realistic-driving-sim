@@ -152,11 +152,79 @@ export const CAR_LIBRARY: CarEntry[] = [
    * -----------------------------------------------------------------------*/
 ];
 
+/* The driving characters an imported car can take, for the /import picker. */
+export const CAR_PRESETS: { id: string; label: string }[] = [
+  { id: "gt", label: "GT / Sports coupé" },
+  { id: "muscle", label: "Muscle car" },
+  { id: "sedan", label: "Sedan" },
+  { id: "hatch", label: "Hot hatch" },
+  { id: "suv", label: "SUV" },
+  { id: "pickup", label: "Pickup truck" },
+  { id: "van", label: "Van" },
+  { id: "bus", label: "Bus" },
+];
+
 /** The car the game starts in. */
 export const DEFAULT_CAR_ID = "458-italia";
 
+/**
+ * Cars the owner has imported from /import. They are appended to the built-in
+ * library at runtime and appear in every player's garage like any other car.
+ */
+export interface ImportedCar {
+  id: string;
+  name: string;
+  klass: string;
+  url: string;
+  bytes: number;
+  author: string;
+  license: string;
+  detail: string;
+  turn: number;
+  /** which preset this car drives like */
+  preset: string;
+}
+
+/** A garage id for an imported car never collides with the built-in ones. */
+export const importedCarId = (id: string) => `imported:${id}`;
+
+export function isImportedCarId(id: string) {
+  return id.startsWith("imported:");
+}
+
+/** Turn an imported-car row into a full garage entry, physics preset applied. */
+export function importedCarEntry(car: ImportedCar): CarEntry {
+  const base = (VEHICLES as Record<string, VehicleSpec | undefined>)[car.preset] ?? VEHICLES.gt;
+  return {
+    id: importedCarId(car.id),
+    name: car.name,
+    klass: car.klass,
+    detail: car.detail || "Imported by the owner",
+    url: car.url,
+    bytes: car.bytes,
+    author: car.author,
+    license: car.license,
+    turn: car.turn,
+    physics: { ...base, name: car.name, klass: car.klass },
+  };
+}
+
+/** The built-in library plus everything the owner has imported. */
+export function allCars(imported: ImportedCar[] = []): CarEntry[] {
+  return [...CAR_LIBRARY, ...imported.map(importedCarEntry)];
+}
+
 export function carById(id: string): CarEntry {
   return CAR_LIBRARY.find((c) => c.id === id) ?? CAR_LIBRARY[0] ?? fallbackCar();
+}
+
+/** Look up a car in the merged list (built-in + imported). */
+export function carFromAll(id: string, imported: ImportedCar[] = []): CarEntry | null {
+  if (isImportedCarId(id)) {
+    const raw = imported.find((c) => importedCarId(c.id) === id);
+    return raw ? importedCarEntry(raw) : null;
+  }
+  return allCars(imported).find((c) => c.id === id) ?? null;
 }
 
 export function isCarId(id: string): boolean {

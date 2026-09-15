@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { createGame } from "@/game/engine";
 import {
-  CAR_LIBRARY, DEFAULT_CAR_ID, carById, carKind, carSpec, formatBytes, type CarEntry,
+  CAR_LIBRARY, DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes, type CarEntry, type ImportedCar,
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
 import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type RemoteDriver, type Telemetry, type Weather } from "@/game/types";
@@ -112,9 +112,6 @@ export default function Drive() {
   const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
   const loadedWorldRef = useRef<string | null>(null);
 
-  const entry = useMemo(() => carById(carId), [carId]);
-  const spec: VehicleSpec = useMemo(() => carSpec(entry), [entry]);
-
   const { isAuthenticated } = useAuth();
   const submitRun = useMutation(api.driverStats.submitRun);
   const publish = useMutation(api.multiplayer.publish);
@@ -123,6 +120,15 @@ export default function Drive() {
   const peers = useQuery(api.multiplayer.peers, netOn ? { room } : "skip");
   const worldMaps = useQuery(api.maps.list);
   const worldAssets = useQuery(api.assets.list);
+  const importedCars = useQuery(api.cars.list) as ImportedCar[] | undefined;
+  /* the full garage: the built-in library plus the owner's imported cars */
+  const garage = useMemo(() => allCars(importedCars ?? []), [importedCars]);
+
+  const entry = useMemo(
+    () => carFromAll(carId, importedCars ?? []) ?? carById(DEFAULT_CAR_ID),
+    [carId, importedCars],
+  );
+  const spec: VehicleSpec = useMemo(() => carSpec(entry), [entry]);
   const textureOverrides = useMemo(() => {
     const out: Record<string, string> = {};
     for (const a of worldAssets ?? []) if (a.url) out[a.slot] = a.url;
@@ -685,6 +691,7 @@ export default function Drive() {
       {booted && !started && (
         <IntroOverlay
           entry={entry}
+          garage={garage}
           spec={spec}
           equipping={equipping}
           onChooseCar={chooseCar}
@@ -1013,13 +1020,13 @@ export default function Drive() {
 
       {panel === "car" && (
         <SidePanel title="Garage" onClose={() => setPanel("none")}>
-          <Group label={"Cars / " + CAR_LIBRARY.length}>
+          <Group label={"Cars / " + garage.length}>
             <p className="mb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
               The fleet is fixed. Pick one and it downloads itself: wheels rigged, size measured,
               paint applied. The shape swaps in immediately while the model streams.
             </p>
             <div className="space-y-2">
-              {CAR_LIBRARY.map((m) => {
+              {garage.map((m) => {
                 const active = carId === m.id;
                 const busy = equipping === m.id;
                 return (
@@ -1199,7 +1206,7 @@ function SidePanel({ title, onClose, children }: { title: string; onClose: () =>
 
 function IntroOverlay({
   entry, spec, equipping, onChooseCar, onStart, paint, onPaint, weather, onWeather, hour, onHour,
-  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld,
+  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld, garage,
 }: {
   entry: CarEntry;
   spec: VehicleSpec;
@@ -1220,6 +1227,7 @@ function IntroOverlay({
   worlds: WorldMapSource[];
   worldName: string;
   onWorld: (source: WorldMapSource) => void;
+  garage: CarEntry[];
 }) {
   return (
     <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 backdrop-blur-[3px]">
@@ -1262,7 +1270,7 @@ function IntroOverlay({
               CHOOSE YOUR CAR
             </div>
             <div className="grid max-h-[240px] gap-1.5 overflow-y-auto pr-1">
-              {CAR_LIBRARY.map((c) => {
+              {garage.map((c) => {
                 const active = entry.id === c.id;
                 const busy = equipping === c.id;
                 return (

@@ -5,8 +5,9 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { formatBytes, mapFromRow, type WorldMapRow } from "@/game/worldmaps";
+import { CAR_PRESETS, type ImportedCar } from "@/game/carmodels";
 import {
-  ArrowLeft, Check, KeyRound, Loader2, Play, Trash2, TriangleAlert, UploadCloud,
+  ArrowLeft, Car, Check, KeyRound, Loader2, Play, Trash2, TriangleAlert, UploadCloud,
 } from "lucide-react";
 
 /**
@@ -27,6 +28,7 @@ export default function Import() {
 
   /* the owner's whole shelf: every map, published or not */
   const owned = useQuery(api.maps.owned, unlocked ? { password: key } : "skip");
+  const cars = useQuery(api.cars.list, unlocked ? {} : "skip") as ImportedCar[] | undefined;
 
   const unlock = useMutation(api.maps.unlock);
   const uploadUrl = useMutation(api.maps.uploadUrl);
@@ -36,6 +38,11 @@ export default function Import() {
   const tune = useMutation(api.maps.tune);
   const removeMap = useMutation(api.maps.remove);
 
+  const carUploadUrl = useMutation(api.cars.uploadUrl);
+  const carRegister = useMutation(api.cars.register);
+  const carTune = useMutation(api.cars.tune);
+  const carRemove = useMutation(api.cars.remove);
+
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +51,11 @@ export default function Import() {
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  /* vehicle import state */
+  const [carBusy, setCarBusy] = useState<string | null>(null);
+  const [carPreset, setCarPreset] = useState("gt");
+  const carInputRef = useRef<HTMLInputElement | null>(null);
 
   const tryUnlock = useCallback(
     async (value: string) => {
@@ -153,6 +165,65 @@ export default function Import() {
       }
     },
     [guarded, key, name, register, uploadUrl],
+  );
+
+  /* -------------------------------------------------------- vehicle upload */
+  const sendCar = useCallback(
+    async (file: File) => {
+      if (!/\.(glb|gltf)$/.test(file.name.toLowerCase())) {
+        toast.error("That file cannot be a car", {
+          description: "Vehicle models are .glb or .gltf, with the wheels named normally.",
+        });
+        return;
+      }
+      setCarBusy(file.name);
+      try {
+        const url = await guarded(() => carUploadUrl({ password: key }), "Upload");
+        if (!url) return;
+        const storageId = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", url);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.onload = () => {
+            try {
+              const body = JSON.parse(xhr.responseText) as { storageId?: string };
+              if (!body.storageId) throw new Error("no storage id came back");
+              resolve(body.storageId);
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)));
+            }
+          };
+          xhr.onerror = () => reject(new Error("the upload was cut off"));
+          xhr.send(file);
+        });
+        const ok = await guarded(
+          () =>
+            carRegister({
+              password: key,
+              storageId: storageId as never,
+              name: name.trim() || file.name.replace(/\.[^.]+$/, ""),
+              fileName: file.name,
+              bytes: file.size,
+              preset: carPreset,
+            }),
+          "Saving the car",
+        );
+        if (ok) {
+          setName("");
+          toast.success("Car in the garage", {
+            description: file.name + " now shows up for every player.",
+          });
+        }
+      } catch (err) {
+        toast.error("Upload failed", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setCarBusy(null);
+        if (carInputRef.current) carInputRef.current.value = "";
+      }
+    },
+    [carPreset, carRegister, carUploadUrl, guarded, key, name],
   );
 
   /* -------------------------------------------------------------------- gate */
@@ -293,6 +364,143 @@ export default function Import() {
               </div>
             </div>
           ) : null}
+        </div>
+
+        {/* ---------------------------------------------------------- vehicles */}
+        <div className="mt-8 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+            <Car className="size-3.5 text-signal" /> VEHICLES / {(cars ?? []).length} IN EVERY GARAGE
+          </div>
+          <p className="mt-2 max-w-xl font-mono text-[10px] leading-relaxed text-muted-foreground">
+            Drop a car model here and it joins the fleet: every player sees it
+            in the garage, paints it, drives it. The wheels are found by name
+            and rigged onto the real suspension automatically.
+          </p>
+
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void sendCar(file);
+            }}
+            className={
+              "mt-3 border border-dashed p-5 text-center transition-colors " +
+              (dragging ? "border-signal bg-signal/10" : "border-white/20 bg-white/4")
+            }
+          >
+            <UploadCloud className="mx-auto size-5 text-signal" />
+            <p className="mt-2 font-mono text-[11px] tracking-[0.14em] text-chalk">DROP A CAR MODEL HERE</p>
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">.glb or .gltf, wheels named normally (wheel_FL, WheelFront_R…)</p>
+
+            <div className="mx-auto mt-3 flex max-w-md flex-wrap items-center justify-center gap-2">
+              <select
+                value={carPreset}
+                onChange={(e) => setCarPreset(e.target.value)}
+                className="border border-white/12 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                title="How this car drives"
+              >
+                {CAR_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-carbon">
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                className="cursor-pointer font-mono text-[10px]"
+                disabled={!!carBusy}
+                onClick={() => carInputRef.current?.click()}
+              >
+                CHOOSE FILE
+              </Button>
+              <input
+                ref={carInputRef}
+                type="file"
+                accept=".glb,.gltf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void sendCar(file);
+                }}
+              />
+            </div>
+            {carBusy ? (
+              <p className="mt-3 flex items-center justify-center gap-2 font-mono text-[10px] text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" /> {carBusy}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {(cars ?? []).map((c) => (
+              <div
+                key={c.id}
+                className="flex flex-wrap items-center gap-2 border border-white/12 bg-white/4 p-3"
+              >
+                <span className="font-display text-sm font-bold tracking-tight">{c.name}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {c.klass} · {CAR_PRESETS.find((p) => p.id === c.preset)?.label ?? c.preset} ·{" "}
+                  {formatBytes(c.bytes)}
+                </span>
+                <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                  <select
+                    value={c.preset}
+                    onChange={(e) =>
+                      void guarded(
+                        () => carTune({ password: key, id: c.id as never, preset: e.target.value }),
+                        "Saving",
+                      )
+                    }
+                    className="border border-white/12 bg-black/40 px-1.5 py-1 font-mono text-[10px] text-chalk outline-none focus:border-signal/60"
+                    title="How this car drives"
+                  >
+                    {CAR_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id} className="bg-carbon">
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void guarded(
+                        () => carTune({ password: key, id: c.id as never, turn: c.turn === 180 ? 0 : 180 }),
+                        "Saving",
+                      )
+                    }
+                    className={
+                      "cursor-pointer border px-2 py-1 font-mono text-[10px] transition-colors " +
+                      (c.turn === 180
+                        ? "border-signal bg-signal text-carbon"
+                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                    }
+                    title="Flip the body 180° if the rigger points it backwards"
+                  >
+                    {c.turn === 180 ? "TURN AROUND ✓" : "TURN AROUND"}
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="cursor-pointer font-mono text-[10px] text-destructive"
+                    onClick={() => void guarded(() => carRemove({ password: key, id: c.id as never }), "Deleting")}
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {(cars ?? []).length === 0 ? (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                No imported vehicles yet — the garage runs on the built-in library.
+              </p>
+            ) : null}
+          </div>
         </div>
 
         {/* -------------------------------------------------------------- maps */}

@@ -11,6 +11,7 @@
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
+import type * as cars from "../cars.js";
 import type * as driverStats from "../driverStats.js";
 import type * as http from "../http.js";
 import type * as maps from "../maps.js";
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   auth: typeof auth;
   "auth/emailOtp": typeof auth_emailOtp;
+  cars: typeof cars;
   driverStats: typeof driverStats;
   http: typeof http;
   maps: typeof maps;
