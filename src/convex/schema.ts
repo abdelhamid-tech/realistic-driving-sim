@@ -47,10 +47,27 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_drift", ["bestDriftScore"]),
 
-    // tableName: defineTable({
-    //   ...
-    //   // table fields
-    // }).index("by_field", ["field"])
+    // one row per driver currently on the road. Rows are written a handful of
+    // times a second and deleted when a driver leaves or goes quiet, so this
+    // table stays small: it is a live map, not a history.
+    presence: defineTable({
+      room: v.string(),
+      session: v.string(),
+      userId: v.optional(v.id("users")),
+      name: v.string(),
+      carId: v.string(),
+      carName: v.string(),
+      kind: v.string(),
+      paint: v.number(),
+      x: v.number(),
+      y: v.number(),
+      z: v.number(),
+      yaw: v.number(),
+      speed: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_room", ["room", "updatedAt"])
+      .index("by_session", ["session"])
   },
   {
     schemaValidation: false,

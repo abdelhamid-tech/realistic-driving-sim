@@ -11,7 +11,9 @@ import { parseWheelName, planRig, sanitiseMeasured, type RigPlan, type WheelSamp
 import {
   CITY_R, KERB_APRON, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
 } from "./city";
-import type { GameHandle, GameOptions, Telemetry, Weather } from "./types";
+import type {
+  GameHandle, GameOptions, NetSnapshot, RemoteDriver, Telemetry, Weather,
+} from "./types";
 
 /* ============================================================================
  *  Driving engine. Everything lives inside createGame() so React StrictMode
@@ -890,6 +892,135 @@ export function createGame(opts: GameOptions): GameHandle {
   }
 
   /* ------------------------------------------------------------- player car */
+  /* -------------------------------------------------------------- other drivers
+   *  Peers arrive as sparse network samples (about eight a second), so each one
+   *  is drawn with the procedural fleet template of its car's class, tinted to
+   *  its paint colour, and smoothed towards the last sample. Motion therefore
+   *  reads as driving rather than teleporting, and no remote ever costs the
+   *  player a 12 MB download. */
+  const remoteCars = new Map<string, {
+    root: THREE.Group;
+    spins: THREE.Object3D[];
+    tag: THREE.Sprite;
+    tex: THREE.CanvasTexture;
+    label: string;
+    tx: number; ty: number; tz: number; tyaw: number;
+    speed: number; radius: number; angle: number; tagY: number;
+  }>();
+  let peersOnline = 0;
+  const KIND_OK = new Set(Object.keys(VEHICLES));
+
+  function nameTag(title: string, sub: string) {
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 128;
+    const g = c.getContext("2d");
+    if (g) {
+      g.clearRect(0, 0, 512, 128);
+      g.fillStyle = "rgba(8,9,11,0.78)";
+      g.fillRect(26, 12, 460, 78);
+      g.strokeStyle = "rgba(255,106,42,0.9)";
+      g.lineWidth = 3;
+      g.strokeRect(26, 12, 460, 78);
+      g.fillStyle = "#ece9e2";
+      g.font = "bold 42px Rajdhani, sans-serif";
+      g.fillText(title.slice(0, 20), 42, 52);
+      g.fillStyle = "#96928a";
+      g.font = "500 24px monospace";
+      g.fillText(sub.slice(0, 26).toUpperCase(), 42, 82);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false,
+    }));
+    sprite.scale.set(3.4, 0.85, 1);
+    return { sprite, tex, label: `${title}|${sub}` };
+  }
+
+  function setRemoteDrivers(list: RemoteDriver[]) {
+    const seen = new Set<string>();
+    for (const d of list) {
+      seen.add(d.id);
+      /* a hostile or stale payload must never be able to blow this up */
+      if (!isFinite(d.x) || !isFinite(d.y) || !isFinite(d.z) || !isFinite(d.yaw)) continue;
+      const kind = (KIND_OK.has(d.kind) ? d.kind : "sedan") as VehicleKind;
+      let rc = remoteCars.get(d.id);
+      if (!rc) {
+        const root = cloneFleetVehicle(fleetTemplate(kind), d.paint);
+        root.traverse((o) => {
+          o.castShadow = false;
+        });
+        const tag = nameTag(d.name, d.carName);
+        root.add(tag.sprite);
+        root.position.set(d.x, d.y, d.z);
+        root.rotation.y = d.yaw;
+        scene.add(root);
+        rc = {
+          root, spins: cloneRigSpins(root), tag: tag.sprite, tex: tag.tex, label: tag.label,
+          tx: d.x, ty: d.y, tz: d.z, tyaw: d.yaw,
+          speed: d.speed, radius: VEHICLES[kind].wheelR, angle: 0,
+          tagY: VEHICLES[kind].height + 0.75,
+        };
+        remoteCars.set(d.id, rc);
+      } else if (rc.label !== `${d.name}|${d.carName}`) {
+        const tag = nameTag(d.name, d.carName);
+        rc.tex.dispose();
+        rc.tag.material.map = tag.tex;
+        rc.tag.material.needsUpdate = true;
+        rc.tex = tag.tex;
+        rc.label = tag.label;
+      }
+      rc.tx = d.x;
+      rc.ty = d.y;
+      rc.tz = d.z;
+      rc.tyaw = d.yaw;
+      rc.speed = d.speed;
+    }
+    for (const [id, rc] of remoteCars) {
+      if (seen.has(id)) continue;
+      scene.remove(rc.root);
+      rc.tex.dispose();
+      rc.tag.material.dispose();
+      /* the fleet template owns the geometry and materials, so only the group
+         we cloned is thrown away here */
+      remoteCars.delete(id);
+    }
+    peersOnline = remoteCars.size;
+  }
+
+  function updateRemoteDrivers(dt: number) {
+    if (!remoteCars.size) return;
+    const k = 1 - Math.exp(-dt * 11);
+    const ky = 1 - Math.exp(-dt * 8);
+    for (const rc of remoteCars.values()) {
+      const p = rc.root.position;
+      p.x += (rc.tx - p.x) * k;
+      p.z += (rc.tz - p.z) * k;
+      const want = Math.max(groundH(p.x, p.z) + 0.03, rc.ty);
+      p.y += (want - p.y) * ky;
+      let dy = rc.tyaw - rc.root.rotation.y;
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      rc.root.rotation.y += dy * k;
+      rc.angle += (rc.speed / Math.max(0.22, rc.radius)) * dt;
+      for (const s of rc.spins) s.rotation.x = rc.angle;
+      rc.tag.position.set(0, rc.tagY, 0);
+    }
+  }
+
+  const netFwd = V3();
+  function netSnapshot(): NetSnapshot | null {
+    if (!player) return null;
+    netFwd.set(0, 0, 1).applyQuaternion(car.quat);
+    return {
+      x: car.pos.x,
+      y: car.pos.y - REST_HEIGHT,
+      z: car.pos.z,
+      yaw: Math.atan2(netFwd.x, netFwd.z),
+      speed: car.spd,
+    };
+  }
+
   const carGroup = new THREE.Group();
   scene.add(carGroup);
   let player: VehicleBuild | null = null;
@@ -2225,6 +2356,9 @@ export function createGame(opts: GameOptions): GameHandle {
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
   }
   function handleKey(e: KeyboardEvent) {
+    /* typing a room code must never drive the car */
+    const fld = e.target as HTMLElement | null;
+    if (fld && (fld.tagName === "INPUT" || fld.tagName === "TEXTAREA" || fld.isContentEditable)) return;
     initAudio();
     if (AC && AC.state === "suspended") void AC.resume();
     if (typingInField()) return;
@@ -2329,14 +2463,15 @@ export function createGame(opts: GameOptions): GameHandle {
   }
 
   /* =====================================================================
-   *  CAR MODEL IMPORT — one click, no account, no API key.
+   *  LIBRARY CARS — the only cars in the game.
    *
-   *  A GLB arrives knowing nothing about being a car: wheels are just nodes
-   *  somewhere in the hierarchy, the nose points wherever the author left
-   *  it, and the units are arbitrary. This measures the model, works out
-   *  which way it faces, then re-parents its wheels onto real rigs so it
-   *  steers, spins and takes suspension travel instead of sliding about as
-   *  a static prop. The physics gets a spec taken off the model itself.
+   *  Players pick from the library in src/game/carmodels.ts and can change
+   *  nothing else: there is no file import and no url box. A model arrives
+   *  knowing nothing about being a car — wheels are just nodes somewhere in
+   *  the hierarchy and the units are arbitrary — so it is measured, turned
+   *  nose-forward, and its wheels are re-parented onto the real rigs so they
+   *  steer, spin and take suspension travel instead of sliding about as a
+   *  static prop. Its physics come from the entry's own spec block.
    * ===================================================================*/
   const AXIS_Y = V3(0, 1, 0);
   let modelLoaderInstance: GLTFLoader | null = null;
@@ -2364,7 +2499,6 @@ export function createGame(opts: GameOptions): GameHandle {
   interface ImportedModel {
     holder: THREE.Group;
     label: string;
-    base: VehicleKind;
     yaw: number;
     scale: number;
     /** raw-space point that must land on the car's origin */
@@ -2376,7 +2510,6 @@ export function createGame(opts: GameOptions): GameHandle {
   }
   let imported: ImportedModel | null = null;
   let bodyPaintMats: THREE.MeshStandardMaterial[] = [];
-  let userYaw = 0;
 
   const PAINT_MAT = /paint|body_?colou?r|shell|exterior|koerper|carroceria/i;
   const NOT_PAINT_MAT = /glass|window|chrome|trim|light|lamp|brake|tire|tyre|rim|interior|leather|seat|mirror|plate|panel|badge|logo|grill|wiper|exhaust|carpet|fabric|rubber|metal/i;
@@ -2439,7 +2572,7 @@ export function createGame(opts: GameOptions): GameHandle {
     const imp = imported;
     if (!imp) return;
     const s = imp.scale;
-    const yaw = imp.yaw + userYaw;
+    const yaw = imp.yaw;
     const cy = Math.cos(yaw);
     const sy = Math.sin(yaw);
     const rx = (x: number, z: number) => x * cy + z * sy;
@@ -2465,31 +2598,11 @@ export function createGame(opts: GameOptions): GameHandle {
     });
   }
 
-  /** Some models are drawn nose-first the other way round: turn it around. */
-  function flipImportedModel() {
-    const imp = imported;
-    const built = player;
-    if (!imp || !built || imp.joints.length < 4) return;
-    userYaw += Math.PI;
-    /* the steered pair must stay the pair the physics steers */
-    const order = [2, 3, 0, 1];
-    const rigs = order.map((k) => built.rigs[k]).filter(Boolean) as WheelRig[];
-    const joints = order.map((k) => imp.joints[k]).filter(Boolean) as RigJoint[];
-    if (rigs.length !== 4) return;
-    rigs.forEach((r, i) => {
-      r.front = i < 2;
-    });
-    built.rigs = rigs;
-    imp.joints = joints;
-    layoutImported();
-    onToast("Model turned around");
-  }
-
   /**
    * Takes a loaded glTF scene and makes it the player's car: measures it,
    * rigs the wheels it can find, and hands the physics a spec from the model.
    */
-  function installModel(scene: THREE.Object3D, label: string, base: VehicleKind): string {
+  function installModel(scene: THREE.Object3D, label: string, carSpec: VehicleSpec, yawDeg = 0): string {
     /* ---- 1. measure the untouched model on an identity stage ---------- */
     const holder = new THREE.Group();
     holder.add(scene);
@@ -2525,14 +2638,15 @@ export function createGame(opts: GameOptions): GameHandle {
       : null;
 
     /* ---- 3. size it so the wheels meet the physics -------------------- */
-    const baseSpec = VEHICLES[base];
+    const baseSpec = carSpec;
     const horizontal = Math.max(rawSize.x, rawSize.z);
     let scale = plan && plan.wheelbase > 0.01
       ? baseSpec.wheelbase / plan.wheelbase
       : baseSpec.length / Math.max(1e-3, horizontal);
     if (!isFinite(scale) || scale <= 0) scale = baseSpec.length / Math.max(1e-3, horizontal);
     scale = clamp(scale, 1e-3, 400);
-    const yaw = plan ? plan.yaw : 0;
+    /* a library entry can correct the rare model that faces backwards */
+    const yaw = (plan ? plan.yaw : 0) + (yawDeg * Math.PI) / 180;
 
     /* measure again in the final frame, so numbers match what is drawn */
     const fit = new THREE.Group();
@@ -2654,7 +2768,6 @@ export function createGame(opts: GameOptions): GameHandle {
     tailGlowL.position.set(hx, hy, -hz);
     tailGlowR.position.set(-hx, hy, -hz);
 
-    userYaw = 0;
     /* centre the body on the wheelbase, not the bounding box, so the drawn
        wheels land exactly on the axles the physics integrates */
     const centre = V3();
@@ -2676,7 +2789,7 @@ export function createGame(opts: GameOptions): GameHandle {
       headAnchors: [headL.position.clone(), headR.position.clone()],
       tailAnchors: [tailGlowL.position.clone(), tailGlowR.position.clone()],
     };
-    imported = { holder, label, base, yaw, scale, centre, yRef, joints, measured };
+    imported = { holder, label, yaw, scale, centre, yRef, joints, measured };
     layoutImported();
     car.reset();
     opts.onReady?.(derived);
@@ -2689,9 +2802,9 @@ export function createGame(opts: GameOptions): GameHandle {
     return `Loaded rigid · no wheel nodes found · ${dims}`;
   }
 
-  /** Downloads a GLB with progress and installs it. */
-  async function loadCarModel(url: string, label: string, base: VehicleKind): Promise<string> {
-    if (!url) throw new Error("No model URL");
+  /** Downloads a library car with progress and installs it. */
+  async function loadCar(url: string, label: string, carSpec: VehicleSpec, yawDeg = 0): Promise<string> {
+    if (!url) throw new Error("This car has no model file");
     onToast(`Downloading ${label}…`);
     let data: ArrayBuffer;
     try {
@@ -2732,22 +2845,7 @@ export function createGame(opts: GameOptions): GameHandle {
     const scene = await new Promise<THREE.Group>((resolve, reject) => {
       modelLoader().parse(data, "", (g) => resolve(g.scene as THREE.Group), reject);
     });
-    const report = installModel(scene, label, base);
-    onToast(report);
-    return report;
-  }
-
-  async function importCar(file: File) {
-    if (!file) return "No file";
-    const ext = (file.name.split(".").pop() || "").toLowerCase();
-    if (ext !== "glb" && ext !== "gltf") throw new Error(`Unsupported format .${ext} (use .glb)`);
-    if (file.size > 180 * 1024 * 1024) throw new Error("File larger than 180 MB");
-    const data = ext === "glb" ? await file.arrayBuffer() : await file.text();
-    const scene = await new Promise<THREE.Group>((resolve, reject) => {
-      modelLoader().parse(data as ArrayBuffer, "", (g) => resolve(g.scene as THREE.Group), reject);
-    });
-    const label = file.name.replace(/\.[^.]+$/, "").slice(0, 28);
-    const report = installModel(scene, label, spec.kind);
+    const report = installModel(scene, label, carSpec, yawDeg);
     onToast(report);
     return report;
   }
@@ -3053,6 +3151,7 @@ export function createGame(opts: GameOptions): GameHandle {
       kind: spec.kind,
       paint: lastTelPaint,
       traffic: traffic.length,
+      peers: peersOnline,
       topSpeedKph: topSpeed * 3.6,
       best0to100,
       distanceKm: distance / 1000,
@@ -3103,6 +3202,7 @@ export function createGame(opts: GameOptions): GameHandle {
     }
 
     updateVisuals(dt);
+    updateRemoteDrivers(dt);
     updateCamera(dt);
     updateRain(dt);
     smoke.update(dt);
@@ -3171,9 +3271,9 @@ export function createGame(opts: GameOptions): GameHandle {
       car.reset();
       resetCones();
     },
-    importCar,
-    loadCarModel,
-    flipImportedModel,
+    loadCar,
+    setRemoteDrivers,
+    netSnapshot,
     setVolume(v: number) {
       volume = clamp(v, 0, 1);
       muted = volume <= 0.01;
@@ -3186,6 +3286,7 @@ export function createGame(opts: GameOptions): GameHandle {
         distanceKm: distance / 1000,
         driftPoints: driftPts,
         kind: spec.kind,
+        car: spec.name,
         seconds: sessionSeconds,
       };
     },

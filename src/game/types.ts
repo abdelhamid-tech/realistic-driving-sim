@@ -10,6 +10,32 @@ export const WEATHER_LABEL: Record<Weather, string> = {
 
 export const CAMERA_LABEL = ["Chase", "Cockpit", "Hood", "Bumper", "Cinema", "Orbit"];
 
+/** Another driver in the room, as sent over the network. */
+export interface RemoteDriver {
+  /** session id — stable while they are online */
+  id: string;
+  name: string;
+  /** the library car they picked, for the nameplate */
+  carName: string;
+  /** base body shape to draw them with */
+  kind: VehicleKind;
+  paint: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  speed: number;
+}
+
+/** What we send about ourselves, sampled from the physics at ~8 Hz. */
+export interface NetSnapshot {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  speed: number;
+}
+
 export interface Telemetry {
   /** km/h */
   speedKph: number;
@@ -34,6 +60,8 @@ export interface Telemetry {
   kind: VehicleKind;
   paint: number;
   traffic: number;
+  /** other drivers currently drawn in the world */
+  peers: number;
   topSpeedKph: number;
   best0to100: number | null;
   distanceKm: number;
@@ -46,6 +74,8 @@ export interface SessionStats {
   distanceKm: number;
   driftPoints: number;
   kind: VehicleKind;
+  /** name of the car that was driven, from the library */
+  car: string;
   seconds: number;
 }
 
@@ -65,6 +95,7 @@ export interface GameOptions {
 
 export interface GameHandle {
   destroy(): void;
+  /** Procedural body of that class — the fallback while a model downloads. */
   setVehicle(kind: VehicleKind): void;
   setMode(index: number): void;
   setCamera(index: number): void;
@@ -74,16 +105,15 @@ export interface GameHandle {
   setHeadlights(on: boolean): void;
   setPaused(paused: boolean): void;
   reset(): void;
-  /** Installs a local .glb/.gltf file as the player's car. */
-  importCar(file: File): Promise<string>;
   /**
-   * Downloads a car GLB from a public, CORS-enabled, no-account source and
-   * auto-rigs it: wheels found by name, nose orientation, size and physics
-   * spec taken from the model. The base kind decides the dynamics inherited.
+   * Installs a car from the library: fetches the GLB, measures it, rigs the
+   * wheels it can find and drives it with the given physics spec.
    */
-  loadCarModel(url: string, label: string, base: VehicleKind): Promise<string>;
-  /** Turns the imported model 180 degrees around, for nose-backwards models. */
-  flipImportedModel(): void;
+  loadCar(url: string, label: string, spec: VehicleSpec, yawDeg?: number): Promise<string>;
+  /** Draws the other drivers in the room; call with a new list whenever it changes. */
+  setRemoteDrivers(list: RemoteDriver[]): void;
+  /** Our own transform for the network. Null before the first frame. */
+  netSnapshot(): NetSnapshot | null;
   setVolume(v: number): void;
   sessionStats(): SessionStats;
 }

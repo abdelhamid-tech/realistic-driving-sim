@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { PAINT_COLORS, VEHICLES, VEHICLE_ORDER } from "@/game/catalog";
-import { CAR_MODELS, formatBytes } from "@/game/carmodels";
+import { CAR_LIBRARY, formatBytes } from "@/game/carmodels";
 import {
   CarFront, CloudRain, Compass, Download, Gauge, Moon, Route, Snowflake, Sparkles,
   Thermometer, Timer, Trophy, Upload, Wind, Zap,
@@ -187,7 +187,7 @@ export default function Landing() {
           </Link>
           <nav className="ml-2 hidden items-center gap-6 font-mono text-[10px] tracking-[0.2em] text-muted-foreground md:flex">
             <a className="transition-colors hover:text-chalk" href="#cars">CARS</a>
-            <a className="transition-colors hover:text-chalk" href="#models">MODELS</a>
+            <a className="transition-colors hover:text-chalk" href="#models">MULTIPLAYER</a>
             <a className="transition-colors hover:text-chalk" href="#sim">SIMULATION</a>
             <a className="transition-colors hover:text-chalk" href="#board">LEADERBOARD</a>
           </nav>
@@ -224,7 +224,7 @@ export default function Landing() {
         />
         <div className="relative mx-auto grid w-full max-w-6xl items-center gap-10 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.15fr_1fr]">
           <motion.div initial="hidden" animate="show" variants={fade} transition={{ duration: 0.6 }}>              <div className="font-mono text-[10px] tracking-[0.34em] text-signal">
-                OPEN CITY DRIVING · 8 BUILT-IN CARS · ONE-CLICK MODEL LIBRARY
+                OPEN CITY DRIVING · REAL CAR LIBRARY · LIVE MULTIPLAYER
               </div>
             <h1 className="mt-4 font-display text-5xl leading-[0.95] font-bold tracking-tight sm:text-6xl lg:text-7xl">
               The city is your
@@ -232,10 +232,10 @@ export default function Landing() {
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground">
               Apex City is a browser driving simulator with real vehicle modelling at its core.              Pick a
-              sports coupe, a bus or anything between, then push it through rain, dusk and traffic on a
+              car out of the fleet, then push it through rain, dusk and traffic on a
               city that reacts to the way you drive — down boulevards furnished bench by bench,
-              hydrant by hydrant. Or skip the lineup and pull a real car straight off the internet —
-              no account, no API key.
+              hydrant by hydrant. Hand out a room code and the same streets fill up with other drivers —
+              live, eight position updates a second.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]">
@@ -256,7 +256,7 @@ export default function Landing() {
             <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
               {[
                 { k: "240 Hz", v: "physics rate" },
-                { k: "8", v: "driveable vehicles" },
+                { k: String(CAR_LIBRARY.length), v: "real car models" },
                 { k: "14", v: "AI traffic cars" },
                 { k: "1.2 km²", v: "procedural city" },
               ].map((s) => (
@@ -290,10 +290,11 @@ export default function Landing() {
       </div>
 
       {/* cars */}
-      <Section id="cars" eyebrow="THE LINEUP" title="Eight vehicles, eight completely different physics envelopes">
+      <Section id="cars" eyebrow="THE FLEET" title="A fixed fleet of real cars, each with its own physics envelope">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {VEHICLE_ORDER.map((k, i) => {
-            const v = VEHICLES[k];
+          {CAR_LIBRARY.map((c, i) => {
+            const v = c.physics;
+            const k = c.id;
             const paint = PAINT_COLORS[(i * 3) % PAINT_COLORS.length];
             return (
               <motion.div
@@ -305,13 +306,13 @@ export default function Landing() {
                 className="group border border-white/12 bg-black/35 p-4 transition-colors hover:border-signal/50"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">{v.klass.toUpperCase()}</span>
+                  <span className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">{c.klass.toUpperCase()}</span>
                   <span
                     className="size-4 border border-white/25 transition-transform group-hover:scale-110"
                     style={{ backgroundColor: hex(paint) }}
                   />
                 </div>
-                <h3 className="mt-2 font-display text-lg font-bold tracking-tight">{v.name}</h3>
+                <h3 className="mt-2 font-display text-lg font-bold tracking-tight">{c.name}</h3>
                 <div className="mt-3 space-y-1.5 font-mono text-[10px] text-muted-foreground">
                   <SpecLine label="POWER" value={`${v.powerKw} kW`} />
                   <SpecLine label="TORQUE" value={`${v.torqueNm} Nm`} />
@@ -319,6 +320,7 @@ export default function Landing() {
                   <SpecLine label="DRIVE" value={v.drivetrain.toUpperCase()} />
                   <SpecLine label="0-100" value={`${v.zeroTo100} s`} />
                   <SpecLine label="V-MAX" value={`${v.topSpeedKph} km/h`} />
+                  <SpecLine label="MODEL" value={formatBytes(c.bytes)} />
                 </div>
                 <div className="mt-3 flex gap-1">
                   {[v.grip, v.downforce / 1.2, v.mass / 12000].map((val, idx) => (
@@ -336,12 +338,12 @@ export default function Landing() {
       {/* model library */}
       <Section
         id="models"
-        eyebrow="ONE CLICK · NO ACCOUNT · NO API KEY"
-        title="Borrow a real car, or drop in your own .glb"
+        eyebrow="LIVE MULTIPLAYER · SHARED ROOMS"
+        title="Every car is a real model, and the streets are shared"
       >
         <div className="grid gap-4 lg:grid-cols-[1fr_0.85fr]">
           <div className="grid gap-3 sm:grid-cols-3">
-            {CAR_MODELS.map((m, i) => (
+            {CAR_LIBRARY.map((m, i) => (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 18 }}
@@ -368,25 +370,25 @@ export default function Landing() {
 
           <div className="border border-white/12 bg-carbon/70 p-5">
             <div className="font-mono text-[10px] tracking-[0.24em] text-muted-foreground">
-              WHAT HAPPENS WHEN YOU CLICK
+              HOW A SESSION WORKS
             </div>
             <ul className="mt-4 space-y-2 text-sm">
-              <ControlRow keys="1" action="Fetch the .glb straight from the CDN" />
-              <ControlRow keys="2" action="Find the four wheel nodes by name" />
-              <ControlRow keys="3" action="Measure wheelbase, track and tyre radius" />
-              <ControlRow keys="4" action="Bolt them onto the live suspension" />
-              <ControlRow keys="5" action="Blend the body into your paint colour" />
+              <ControlRow keys="I" action="Pick any car in the fleet — the library is fixed" />
+              <ControlRow keys="II" action="Your position goes out eight times a second" />
+              <ControlRow keys="III" action="Everyone else in the room appears on your road" />
+              <ControlRow keys="IV" action="Share the invite link and they land in your room" />
+              <ControlRow keys="V" action="Go quiet and your car drops out on its own" />
             </ul>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              No Sketchfab login, no token, no upload step. Wheels it cannot identify stay rigid, and a
-              single button turns the car around if a model faces backwards.
+              Nothing to install and nothing to upload: the fleet ships with the game and the rooms
+              are free to join. Drive the same corner as everybody else, live.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2 font-mono text-[9px] tracking-[0.14em] text-muted-foreground">
               <span className="flex items-center gap-1.5 border border-white/10 px-2 py-1.5">
                 <CarFront className="size-3" /> AUTO-RIGGED WHEELS
               </span>
               <span className="flex items-center gap-1.5 border border-white/10 px-2 py-1.5">
-                <Upload className="size-3" /> LOCAL .GLB IMPORT
+                <Compass className="size-3" /> SHARED ROOMS
               </span>
             </div>
           </div>
@@ -474,7 +476,7 @@ export default function Landing() {
                 <Timer className="size-3" /> 0-100 TIMER
               </span>
               <span className="flex items-center gap-1.5 border border-white/10 px-2 py-1.5">
-                <Upload className="size-3" /> IMPORT .GLB CARS
+                <Compass className="size-3" /> LIVE MULTIPLAYER
               </span>
             </div>
           </div>
@@ -489,7 +491,7 @@ export default function Landing() {
           </h2>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
             Free roam with no timers and no loading screens. Take the drag strip, hold a slide round the
-            plaza roundabout, or take the bus and see what 12.5 tonnes feels like at a red light.
+            plaza roundabout, or team up in a room and race the boulevards side by side.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button asChild size="lg" className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]">
@@ -506,7 +508,7 @@ export default function Landing() {
 
       <footer className="border-t border-white/10">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-5 py-6 font-mono text-[10px] tracking-[0.16em] text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <span>APEX CITY · PACEJKA TYRES · RAYCAST SUSPENSION · 240 HZ</span>
+          <span>APEX CITY · LIVE MULTIPLAYER · PACEJKA TYRES · 240 HZ</span>
           <span className="flex items-center gap-3">
             <Link to="/drive" className="hover:text-chalk">DRIVE</Link>
             <Link to={isAuthenticated ? "/dashboard" : "/auth?returnTo=%2Fdashboard"} className="hover:text-chalk">
