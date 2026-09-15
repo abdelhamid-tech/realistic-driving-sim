@@ -1,16 +1,18 @@
 {
-  "name": "freebuff.com application",
-  "short_name": "freebuff.com",
-  "description": "freebuff.com application",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "name": "Riverbend · Open City Driving",
+  "short_name": "Riverbend",
+  "description": "An open-city driving simulator: a wide river crossed by six unique bridges, downtown, industrial docks, tunnels, forest and live multiplayer rooms.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0c0f",
+  "theme_color": "#0b0c0f",
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "logo.svg",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

@@ -754,7 +754,7 @@ export default function Drive() {
       />
 
       {/* ------------------------------------------------------------ HUD */}
-      <div className={"pointer-events-none absolute inset-0 z-[3] transition-opacity duration-500 " + (started ? "opacity-100" : "opacity-0")}>
+      <div className={"safe-inset pointer-events-none absolute inset-0 z-[3] transition-opacity duration-500 " + (started ? "opacity-100" : "opacity-0")}>
         {/* brand */}
         <div className="absolute left-4 top-4 sm:left-6 sm:top-5">
           <div className="font-mono text-[10px] tracking-[0.34em] text-signal">RIVERBEND / DRIVE</div>
@@ -867,7 +867,8 @@ export default function Drive() {
 
       {/* mobile touch controls */}
       {started && (
-        <div className="absolute inset-x-0 bottom-3 z-[5] flex items-end justify-between px-3 lg:hidden">
+        /* the pedals keep clear of the home indicator on a phone in fullscreen */
+        <div className="absolute inset-x-0 bottom-0 z-[5] flex items-end justify-between px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] lg:hidden">
           <div className="flex gap-2">
             <TouchButton code="KeyA" onPointerDown={() => key("KeyA", true)} onPointerUp={() => key("KeyA", false)}>LEFT</TouchButton>
             <TouchButton code="KeyD" onPointerDown={() => key("KeyD", true)} onPointerUp={() => key("KeyD", false)}>RIGHT</TouchButton>
@@ -892,7 +893,7 @@ export default function Drive() {
       {/* the menu banner. Menus only, never over the road, and the container
           has to exist at its real size before the SDK is asked for a banner. */}
       {booted && !started ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[9] flex justify-center">
+        <div className="safe-inset pointer-events-none absolute inset-x-0 bottom-0 z-[9] flex justify-center">
           <div
             id={BANNER_ID}
             className={
@@ -1101,7 +1102,7 @@ export default function Drive() {
                   ? "DRIVING"
                   : source.kind === "procedural"
                     ? "PROCEDURAL"
-                    : source.url.startsWith("/maps/")
+                    : source.url.startsWith("maps/")
                       ? "SHIPPED"
                       : source.kind.toUpperCase() + (source.bytes ? " · " + formatBytes(source.bytes) : "");
                 return (

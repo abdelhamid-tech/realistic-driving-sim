@@ -1,19 +1,44 @@
 # Headers for static hosts that read public/_headers
 # (Netlify, Cloudflare Pages — the file is copied into the build output as-is).
 #
-# Who may put this game in an iframe: us, and CrazyGames. Nobody else.
-# frame-ancestors is the modern replacement for X-Frame-Options; the old header
-# cannot express "one other site", which is exactly what is needed here.
-# This has to be a real HTTP header — browsers ignore frame-ancestors inside a
-# <meta> tag — which is why it lives here and not in index.html.
+# WHO MAY PUT THIS GAME IN AN IFRAME: CrazyGames, and nobody else.
+#
+# This is the "sitelock" half of the CrazyGames requirements. frame-ancestors
+# has to be a real HTTP header — browsers ignore it inside a <meta> tag — which
+# is why it lives here and not in index.html.
+#
+# The list below is CrazyGames' own exhaustive whitelist, not a guess:
+#   · every regional portal (crazygames.fr, .no, .jp, …)
+#   · games.crazygames.com, where video ads run and where the app's game frame
+#     lives
+#   · the two app origins, scheme included. This matters: a bare host such as
+#     *.crazygames.com inherits the scheme of the document, so it allows https
+#     ancestors only — the iOS app is served from capacitor:// app.crazygames.com
+#     and would otherwise render a white screen with no JavaScript error.
+#   · frame-ancestors is checked against EVERY ancestor, and in the apps the
+#     game sits in a frame on games.crazygames.com which is itself framed by the
+#     app, so both have to be listed.
+# Sources: docs.crazygames.com/resources/html5/sitelock
+#
+# Note for the CrazyGames submission itself: a game uploaded as a file bundle
+# is served from game-files.crazygames.com, where this file is not read. There,
+# the protection is the JavaScript hostname check they document — deliberately
+# not implemented here, because it blanks the game on the owner's own domain and
+# on the preview host.
 
 /*
-  Content-Security-Policy: frame-ancestors 'self' https://*.crazygames.com https://crazygames.com
+  Content-Security-Policy: frame-ancestors 'self' https://*.crazygames.com https://www.crazygames.com https://www.crazygames.fr https://www.crazygames.co.id https://www.crazygames.cz https://www.crazygames.dk https://www.crazygames.hu https://www.crazygames.nl https://www.crazygames.no https://www.crazygames.pl https://www.crazygames.com.br https://www.crazygames.ro https://www.crazygames.fi https://www.crazygames.se https://www.crazygames.ru https://www.crazygames.com.ua https://www.crazygames.at https://www.crazygames.jp https://www.crazygames.pt https://www.crazygames.vn https://www.crazygames.com.vn https://www.crazygames.co.kr https://games.crazygames.com https://app.crazygames.com capacitor://app.crazygames.com
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-# The maps are immutable once built: cache them hard.
+# The maps and the car models are immutable once built: cache them hard.
 /maps/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/models/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/tex/*
   Cache-Control: public, max-age=31536000, immutable
 
 /assets/*

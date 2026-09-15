@@ -228,7 +228,7 @@ export default function Assets() {
                 {/* current texture, shipped or override */}
                 <div className="size-20 shrink-0 overflow-hidden border border-white/10 bg-black/40">
                   <img
-                    src={row?.url ?? `/tex/${slot}.png`}
+                    src={row?.url ?? `tex/${slot}.png`}
                     alt={label}
                     className="size-full object-cover"
                     onError={(e) => {

@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# the CrazyGames submission bundle (bun run build:cg)
+isolate
 *.local
 
 # Editor directories and files

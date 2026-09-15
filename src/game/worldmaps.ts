@@ -58,13 +58,19 @@ export function isProcedural(src: WorldMapSource) {
  *  THE MAP THE GAME SHIPS WITH — one world, built from code
  *  (tools/build-riverbend.mjs), served out of public/maps/. Metres already,
  *  so it is not re-fitted.
+ *
+ *  The URL is a *bundle-relative* path (no leading slash), which is what the
+ *  CrazyGames technical requirements ask for: an uploaded bundle is served from
+ *  a subfolder, where "/maps/riverbend.glb" would point at the root of their
+ *  host and 404. Relative paths resolve against the document in every case —
+ *  local dev, the owner's domain, and the game host.
  * -------------------------------------------------------------------------*/
 export const BUILT_IN_MAPS: WorldMapSource[] = [
   {
     id: "riverbend",
     name: "RIVERBEND",
     kind: "glb",
-    url: "/maps/riverbend.glb",
+    url: "maps/riverbend.glb",
     bytes: 6940392,
     fitTo: 0,
     turn: 0,

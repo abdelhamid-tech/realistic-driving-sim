@@ -70,7 +70,7 @@ function tune(t: THREE.Texture) {
 
 /** The shipped set, straight out of public/tex/. */
 async function loadShipped(slot: DressSlot): Promise<THREE.Texture> {
-  const t = await loader.loadAsync(`/tex/${slot}.png`);
+  const t = await loader.loadAsync(`tex/${slot}.png`);
   return tune(t);
 }
 
@@ -101,9 +101,9 @@ export async function loadWorldDress(
     DRESS_SLOTS.map(async (slot) => {
       const url = overrides[slot];
       try {
-        const tex = await fetchTexture(url || `/tex/${slot}.png`);
+        const tex = await fetchTexture(url || `tex/${slot}.png`);
         textures.set(slot, tex);
-        urls.set(slot, url || `/tex/${slot}.png`);
+        urls.set(slot, url || `tex/${slot}.png`);
       } catch {
         /* a missing shipped texture or a dead URL: leave the material as is */
       }

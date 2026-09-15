@@ -1,6 +1,6 @@
 # Your car models go here
 
-Drop a `.glb` in this folder and it is served at `/models/<file>.glb` — no CDN,
+Drop a `.glb` in this folder and it is served at `models/<file>.glb` — no CDN,
 no CORS, no third party. Then add one entry to `src/game/carmodels.ts`:
 
 ```ts
@@ -9,7 +9,7 @@ no CORS, no third party. Then add one entry to `src/game/carmodels.ts`:
   name: "MY CAR",                     // shown in the garage
   klass: "Track special",
   detail: "My own model",
-  url: "/models/my-car.glb",          // the file you just copied
+  url: "models/my-car.glb",           // the file you just copied (no leading /)
   bytes: 4200000,                     // shown on the card
   author: "me",
   license: "CC0",

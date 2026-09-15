@@ -9,7 +9,7 @@
  *  HOW TO PUT YOUR OWN MODELS IN
  *
  *  1. Copy your .glb files into  public/models/  (the folder already exists).
- *     A file at `public/models/supra.glb` is served at `/models/supra.glb`.
+ *     A file at `public/models/supra.glb` is served at `models/supra.glb`.
  *     Local files are the best option: no CDN, no CORS, no waiting on a third
  *     party, and they work offline on the built game.
  *
@@ -39,8 +39,10 @@ export interface CarEntry {
   /** one-line class, e.g. "Mid-engine V8 coupé" */
   klass: string;
   /**
-   * "/models/your-car.glb" for anything shipped in this bundle; the owner's
-   * imported cars are the only entries that use an absolute storage URL.
+   * "models/your-car.glb" for anything shipped in this bundle — a path
+   * relative to the document, never starting with "/", because the game is
+   * served from a subfolder on its game host (see the note in worldmaps.ts).
+   * The owner's imported cars are the only entries that use a full storage URL.
    */
   url: string;
   /** content length of the file, for the "1.7 MB" hint on the card */
@@ -83,7 +85,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "458 ITALIA",
     klass: "Mid-engine V8 coupé",
     detail: "Rigged wheels · loads in about a second",
-    url: "/models/ferrari-458.glb",
+    url: "models/ferrari-458.glb",
     bytes: 1681572,
     author: "vicent091036 · shipped with three.js",
     license: "CC BY 4.0",
@@ -101,7 +103,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "KHR CONCEPT",
     klass: "Concept car",
     detail: "Full interior · 445 parts · the heavy one",
-    url: "/models/khr-concept.glb",
+    url: "models/khr-concept.glb",
     bytes: 11778688,
     author: "Khronos glTF Sample Assets · source asset by Unity Fan",
     license: "CC0 / public domain",
@@ -122,7 +124,7 @@ export const CAR_LIBRARY: CarEntry[] = [
     name: "STREET SEDAN",
     klass: "Lowered sedan",
     detail: "Light model · the one that always loads",
-    url: "/models/street-sedan.glb",
+    url: "models/street-sedan.glb",
     bytes: 167272,
     author: "Babylon.js sample assets",
     license: "free sample asset",
@@ -147,7 +149,7 @@ export const CAR_LIBRARY: CarEntry[] = [
    *    name: "MY CAR",
    *    klass: "Track special",
    *    detail: "My own model",
-   *    url: "/models/my-car.glb",
+   *    url: "models/my-car.glb",
    *    bytes: 4200000,
    *    author: "me",
    *    license: "© me",
