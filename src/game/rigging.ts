@@ -3,9 +3,12 @@
  *
  *  A downloaded model arrives with no idea that it is a car: wheels are just
  *  nodes somewhere in the hierarchy, the nose can point anywhere, and the
- *  units are whatever the author felt like. Everything here is pure maths so
- *  it can be tested without a renderer; the scene-graph work lives in engine.
+ *  units are whatever the author felt like. Everything here is pure maths on
+ *  the scene graph, so it runs and is testable in plain Node; only the WebGL
+ *  work stays in engine.
  * ==========================================================================*/
+
+import { Box3, type Mesh, type Object3D } from "three";
 
 export type Axle = "f" | "b";
 export type Side = "l" | "r";
@@ -123,6 +126,104 @@ export function parseWheelName(rawName: string): WheelLabel | null {
   return { side, axle };
 }
 
+/* ---------------------------------------------------------------------------
+ *  WHEELS WITH NO NAME
+ *
+ *  Plenty of downloaded models call their wheels `Object_37`. Rather than
+ *  give up and leave the car rigid, look for wheels by shape: round, roughly
+ *  as tall as it is long, sitting low, and four of them in a rectangle.
+ *  This is a guess — the caller keeps the owner's rotation control so a wrong
+ *  answer is fixable — but it is a good guess.
+ * -------------------------------------------------------------------------*/
+
+export interface NodeBox extends Box3Like {
+  /** index into the caller's own node list */
+  index: number;
+}
+
+const boxSize = (b: Box3Like) => [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+const boxCentre = (b: Box3Like) => [
+  (b.min[0] + b.max[0]) / 2,
+  (b.min[1] + b.max[1]) / 2,
+  (b.min[2] + b.max[2]) / 2,
+];
+
+/**
+ * Picks four boxed nodes that look like road wheels, in slot order
+ * fl, fr, rl, rr (+Z is the nose, as everywhere else in the engine).
+ * Returns null when the shape of the model gives nothing convincing.
+ */
+export function detectWheels(nodes: NodeBox[], model: Box3Like): (number | null)[] | null {
+  const size = boxSize(model);
+  const height = size[1];
+  const length = Math.max(size[0], size[2]);
+  if (nodes.length < 4 || height <= 0 || length <= 0) return null;
+  const [mcx, , mcz] = boxCentre(model);
+
+  const round = (b: Box3Like) => {
+    const [sx, sy, sz] = boxSize(b);
+    const vertical = sy;
+    const footprint = Math.max(sx, sz);
+    /* a tyre is a disc: tall as it is wide, and small next to the car */
+    if (vertical < height * 0.06) return false;
+    if (vertical > height * 0.55) return false;
+    if (footprint > length * 0.35) return false;
+    if (Math.abs(vertical - footprint) > footprint * 0.55) return false;
+    return true;
+  };
+
+  let pool = nodes.filter(round);
+  if (pool.length < 4) return null;
+  /* drop anything that just sits inside a bigger candidate (a rim, a disc, a
+     hub): the outermost shape is the tyre, and it is the one that must spin */
+  pool = pool.filter(
+    (b) =>
+      !pool.some(
+        (o) =>
+          o !== b &&
+          o.min[0] <= b.min[0] + 1e-6 && o.min[1] <= b.min[1] + 1e-6 && o.min[2] <= b.min[2] + 1e-6 &&
+          o.max[0] >= b.max[0] - 1e-6 && o.max[1] >= b.max[1] - 1e-6 && o.max[2] >= b.max[2] - 1e-6 &&
+          (boxSize(o)[1] > boxSize(b)[1]).valueOf(),
+      ),
+  );
+  if (pool.length < 4) return null;
+
+  /* keep the wheels low in the car: anything floating in the top half is a
+     mirror, an exhaust tip or a wiper */
+  const bottom = model.min[1];
+  pool = pool.filter((b) => boxCentre(b)[1] < bottom + height * 0.62);
+  if (pool.length < 4) return null;
+
+  /* the four quadrants around the car's centre, widest track first */
+  const quadrant = (b: Box3Like): Slot | null => {
+    const [cx, , cz] = boxCentre(b);
+    const dx = cx - mcx;
+    const dz = cz - mcz;
+    if (Math.abs(dx) < size[0] * 0.12 || Math.abs(dz) < size[2] * 0.12) return null; /* too central */
+    return ((dz > 0 ? "f" : "r") + (dx > 0 ? "l" : "r")) as Slot;
+  };
+  const best = new Map<Slot, NodeBox>();
+  const spread = new Map<Slot, number>();
+  for (const b of pool) {
+    const slot = quadrant(b);
+    if (!slot) continue;
+    const [cx, , cz] = boxCentre(b);
+    const reach = Math.abs(cx - mcx) + Math.abs(cz - mcz);
+    if ((spread.get(slot) ?? -1) < reach) {
+      best.set(slot, b);
+      spread.set(slot, reach);
+    }
+  }
+  if (SLOTS.some((s) => !best.has(s))) return null;
+
+  /* the four must match each other: a car does not have one 20 cm wheel */
+  const radii = SLOTS.map((s) => boxSize(best.get(s) as Box3Like)[1] / 2);
+  const mid = mean(radii);
+  if (radii.some((r) => Math.abs(r - mid) > mid * 0.45)) return null;
+
+  return SLOTS.map((s) => (best.get(s) as NodeBox).index);
+}
+
 export interface WheelSample {
   /** opaque handle the caller uses to find the node again */
   id: number;
@@ -133,6 +234,114 @@ export interface WheelSample {
   z: number;
   /** measured wheel radius (hub down to the bottom of the tyre) */
   radius: number;
+}
+
+/* ---------------------------------------------------------------------------
+ *  WHICH END IS THE NOSE
+ *
+ *  Names cannot be trusted to say it: a model called `wheel_FL` sits at the
+ *  back as often as not, and plenty of downloads name nothing at all. So the
+ *  decision is made once, here, from where the four wheels actually ended up
+ *  after the owner's own correction has been applied — and it is applied to
+ *  the body and the wheel roles *together*, so a car turned around still
+ *  steers from its nose instead of its boot.
+ * -------------------------------------------------------------------------*/
+
+export interface RigDecision {
+  /** radians to turn the body, owner's correction included */
+  yaw: number;
+  /** index into `samples` of the wheel playing each of fl, fr, rl, rr */
+  slots: (number | null)[];
+  /** wheelbase, track and radius of that assignment, in the final frame */
+  metrics: { wheelbase: number; track: number; wheelR: number } | null;
+  /** true when the names were overruled and the wheels re-labelled by position */
+  relabelled: boolean;
+}
+
+export interface RigOptions {
+  /**
+   * Degrees clockwise seen from above — the owner's correction. It turns the
+   * body *and* re-labels the wheels, so the steering pair stays under the nose
+   * the player can see. 0 and 180 are the only useful values.
+   */
+  turn?: number;
+}
+
+/** The four roles, read off the wheel positions once the body has been turned. */
+function slotsFromQuadrants(
+  samples: WheelSample[], basis: number[], yaw: number,
+): (number | null)[] {
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const pts = basis.map((i) => {
+    const w = samples[i];
+    return { i, x: w.x * c + w.z * sn, z: -w.x * sn + w.z * c };
+  });
+  if (!pts.length) return [null, null, null, null];
+  const mx = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+  const mz = pts.reduce((a, q) => a + q.z, 0) / pts.length;
+  const out: (number | null)[] = [null, null, null, null];
+  for (const q of pts) {
+    const slot = (q.z > mz ? 0 : 2) + (q.x > mx ? 0 : 1); /* fl fr rl rr */
+    if (out[slot] === null) out[slot] = q.i;
+  }
+  return out;
+}
+
+function rigMetrics(samples: WheelSample[], slots: (number | null)[], yaw: number) {
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const at = (i: number | null) => {
+    if (i === null || !samples[i]) return null;
+    const w = samples[i];
+    return { x: w.x * c + w.z * sn, z: -w.x * sn + w.z * c, r: w.radius };
+  };
+  const fl = at(slots[0]), fr = at(slots[1]), rl = at(slots[2]), rr = at(slots[3]);
+  if (!fl || !fr || !rl || !rr) return null;
+  return {
+    wheelbase: Math.abs((fl.z + fr.z) / 2 - (rl.z + rr.z) / 2),
+    track: Math.abs((fl.x + rl.x) / 2 - (fr.x + rr.x) / 2),
+    wheelR: (fl.r + fr.r + rl.r + rr.r) / 4,
+  };
+}
+
+/**
+ * The whole orientation decision, in one pure call: the plan's own yaw guess
+ * plus the owner's correction, and the four wheel roles that follow from it.
+ */
+export function decideRig(
+  samples: WheelSample[], plan: RigPlan | null, opts: RigOptions = {},
+): RigDecision {
+  const turn = ((opts.turn ?? 0) * Math.PI) / 180;
+  const yaw = (plan ? plan.yaw : 0) + turn;
+  const named = plan ? plan.slot.filter((i): i is number => i !== null) : [];
+  const trustNames = !!plan && !turn && named.length === 4;
+  const slots = trustNames
+    ? (plan as RigPlan).slot.slice()
+    : slotsFromQuadrants(samples, named.length === 4 ? named : samples.map((w) => w.id), yaw);
+  return { yaw, slots, metrics: rigMetrics(samples, slots, yaw), relabelled: !trustNames };
+}
+
+/**
+ * The box of every node's own subtree, accumulated bottom-up so this stays
+ * linear even on a 3 000-mesh model. The outermost boxes are what the shape
+ * detector needs: a wheel group contains its tyre, its rim and its nuts.
+ */
+export function subtreeBoxes(root: Object3D): Map<Object3D, Box3> {
+  const boxes = new Map<Object3D, Box3>();
+  const walk = (o: Object3D): Box3 => {
+    const b = new Box3();
+    const mesh = o as Mesh;
+    const geo = mesh.isMesh ? mesh.geometry : undefined;
+    if (geo) {
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      if (geo.boundingBox) b.union(geo.boundingBox.clone().applyMatrix4(o.matrixWorld));
+    }
+    for (const c of o.children) b.union(walk(c));
+    boxes.set(o, b);
+    return b;
+  };
+  root.updateMatrixWorld(true);
+  walk(root);
+  return boxes;
 }
 
 export interface Box3Like {

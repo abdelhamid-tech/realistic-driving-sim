@@ -15,12 +15,15 @@ import {
   type FleetTemplate, type VehicleBuild, type VehicleKind, type VehicleMaterials,
   type VehicleSpec, type WheelRig,
 } from "./vehicles";
-import { parseWheelName, planRig, sanitiseMeasured, type RigPlan, type WheelSample } from "./rigging";
+import {
+  decideRig, detectWheels, parseWheelName, planRig, sanitiseMeasured, subtreeBoxes,
+  type RigPlan, type WheelSample,
+} from "./rigging";
 import {
   CITY_R, KERB_APRON, STREETS, WALK_H, blockAt, buildCity, cityH, cityState, onStreet,
 } from "./city";
 import type {
-  GameHandle, GameOptions, NetSnapshot, RemoteDriver, Telemetry, Weather,
+  CarLoadOptions, GameHandle, GameOptions, NetSnapshot, RemoteDriver, Telemetry, Weather,
 } from "./types";
 
 /* ============================================================================
@@ -2768,11 +2771,56 @@ export function createGame(opts: GameOptions): GameHandle {
     });
   }
 
+  /** Hub, radius and box of each candidate node, in the holder's frame. */
+  function wheelSamplesOf(nodes: THREE.Object3D[]) {
+    const samples: WheelSample[] = [];
+    const boxes: THREE.Box3[] = [];
+    for (const o of nodes) {
+      const box = new THREE.Box3().setFromObject(o);
+      const hub = box.getCenter(V3());
+      samples.push({
+        id: samples.length, name: o.name, x: hub.x, y: hub.y, z: hub.z,
+        radius: Math.max(0.002, (box.max.y - box.min.y) / 2),
+      });
+      boxes.push(box);
+    }
+    return { samples, boxes };
+  }
+
+  /**
+   * No usable wheel names: find four round things low in the car instead of
+   * leaving it planted on a rigid body with no wheels at all.
+   */
+  function wheelsByShape(root: THREE.Object3D, raw: THREE.Box3) {
+    const boxes = subtreeBoxes(root);
+    const nodes: THREE.Object3D[] = [];
+    root.traverse((o) => {
+      if (o === root) return;
+      const b = boxes.get(o);
+      if (b && !b.isEmpty()) nodes.push(o);
+    });
+    const pool = nodes.map((o, i) => {
+      const b = boxes.get(o) as THREE.Box3;
+      return {
+        index: i,
+        min: [b.min.x, b.min.y, b.min.z] as [number, number, number],
+        max: [b.max.x, b.max.y, b.max.z] as [number, number, number],
+      };
+    });
+    const picked = detectWheels(pool, {
+      min: [raw.min.x, raw.min.y, raw.min.z],
+      max: [raw.max.x, raw.max.y, raw.max.z],
+    });
+    if (!picked || picked.some((i) => i === null)) return null;
+    const chosen = (picked as number[]).map((i) => nodes[i]).filter(Boolean);
+    return chosen.length === 4 ? chosen : null;
+  }
+
   /**
    * Takes a loaded glTF scene and makes it the player's car: measures it,
    * rigs the wheels it can find, and hands the physics a spec from the model.
    */
-  function installModel(scene: THREE.Object3D, label: string, carSpec: VehicleSpec, yawDeg = 0): string {
+  function installModel(scene: THREE.Object3D, label: string, carSpec: VehicleSpec, load: CarLoadOptions = {}): string {
     /* ---- 1. measure the untouched model on an identity stage ---------- */
     const holder = new THREE.Group();
     holder.add(scene);
@@ -2784,28 +2832,41 @@ export function createGame(opts: GameOptions): GameHandle {
     const rawSize = raw.getSize(V3());
 
     /* ---- 2. which nodes are wheels ------------------------------------ */
-    const wheelNodes: THREE.Object3D[] = [];
+    const named: THREE.Object3D[] = [];
     holder.traverse((o) => {
       if (!o.name || !parseWheelName(o.name)) return;
       for (let a = o.parent; a && a !== holder; a = a.parent) {
         if (a.name && parseWheelName(a.name)) return; /* inner rim, disc, nut… */
       }
-      wheelNodes.push(o);
+      named.push(o);
     });
-    const samples: WheelSample[] = [];
-    const wheelBoxes: THREE.Box3[] = [];
-    for (const o of wheelNodes) {
-      const box = new THREE.Box3().setFromObject(o);
-      const hub = box.getCenter(V3());
-      samples.push({
-        id: samples.length, name: o.name, x: hub.x, y: hub.y, z: hub.z,
-        radius: Math.max(0.002, (box.max.y - box.min.y) / 2),
-      });
-      wheelBoxes.push(box);
+    const modelBox = {
+      min: [raw.min.x, raw.min.y, raw.min.z] as [number, number, number],
+      max: [raw.max.x, raw.max.y, raw.max.z] as [number, number, number],
+    };
+    let { samples, boxes } = wheelSamplesOf(named);
+    let wheelNodes = named;
+    let plan = samples.length >= 4 ? planRig(samples, modelBox) : null;
+    let byShape = false;
+
+    /* plenty of downloads call their wheels `Object_37`: look for four round
+       things low in the car rather than leave it planted on a rigid body */
+    if (!plan) {
+      const found = wheelsByShape(holder, raw);
+      if (found) {
+        const s2 = wheelSamplesOf(found);
+        samples = s2.samples;
+        boxes = s2.boxes;
+        wheelNodes = found;
+        plan = null;
+        byShape = true;
+      }
     }
-    const plan = samples.length >= 4
-      ? planRig(samples, { min: [raw.min.x, raw.min.y, raw.min.z], max: [raw.max.x, raw.max.y, raw.max.z] })
-      : null;
+    let wheelBoxes = boxes;
+
+    /* the owner's own correction, applied to the body and to the wheels'
+       roles together, so a car turned around still steers from its nose */
+    const { yaw, slots, metrics } = decideRig(samples, plan, load);
 
     /* ---- 3. size it so the wheels meet the physics -------------------- */
     const baseSpec = carSpec;
@@ -2815,8 +2876,6 @@ export function createGame(opts: GameOptions): GameHandle {
       : baseSpec.length / Math.max(1e-3, horizontal);
     if (!isFinite(scale) || scale <= 0) scale = baseSpec.length / Math.max(1e-3, horizontal);
     scale = clamp(scale, 1e-3, 400);
-    /* a library entry can correct the rare model that faces backwards */
-    const yaw = (plan ? plan.yaw : 0) + (yawDeg * Math.PI) / 180;
 
     /* measure again in the final frame, so numbers match what is drawn */
     const fit = new THREE.Group();
@@ -2831,7 +2890,7 @@ export function createGame(opts: GameOptions): GameHandle {
     const joints: RigJoint[] = [];
     const rigs: WheelRig[] = [];
     for (let i = 0; i < 4; i++) {
-      const id = plan ? plan.slot[i] : null;
+      const id = slots[i];
       if (id === null || !wheelNodes[id]) continue;
       const node = wheelNodes[id];
       const sample = samples[id];
@@ -2867,9 +2926,12 @@ export function createGame(opts: GameOptions): GameHandle {
       length: size.z,
       width: size.x,
       height: size.y,
-      wheelbase: plan ? plan.wheelbase * scale : baseSpec.wheelbase,
-      track: plan ? plan.track * scale : baseSpec.track,
-      wheelR: plan ? plan.wheelR * scale : baseSpec.wheelR,
+      wheelbase: metrics ? metrics.wheelbase * scale : baseSpec.wheelbase,
+      track: metrics ? metrics.track * scale : baseSpec.track,
+      /* with no wheels to measure, the preset keeps its own radius: the model's
+         own bottom is placed on the road by measurement anyway, so nothing
+         sinks — only the suspension travel stays as the preset had it */
+      wheelR: metrics ? metrics.wheelR * scale : baseSpec.wheelR,
     });
     const derived: VehicleSpec = {
       ...baseSpec, name: label,
@@ -2950,7 +3012,7 @@ export function createGame(opts: GameOptions): GameHandle {
       raw.getCenter(centre);
       centre.y = 0;
     }
-    const yRef = plan && joints.length
+    const yRef = joints.length >= 3
       ? joints.reduce((a, j) => a + j.y, 0) / joints.length
       : raw.min.y + measured.wheelR / scale;
     player = {
@@ -2968,12 +3030,15 @@ export function createGame(opts: GameOptions): GameHandle {
     if (rigs.length === 4) {
       return `Rigged 4 wheels · ${measured.wheelbase.toFixed(2)} m wheelbase · ${dims}`;
     }
-    if (rigs.length) return `Rigged ${rigs.length} wheels · ${dims}`;
-    return `Loaded rigid · no wheel nodes found · ${dims}`;
+    if (rigs.length) {
+      const how = byShape ? "found by shape" : "found by name";
+      return `Rigged ${rigs.length} wheels (${how}) · ${measured.wheelbase.toFixed(2)} m wheelbase · ${dims}`;
+    }
+    return `Loaded rigid · no wheels found · ${dims}`;
   }
 
   /** Downloads a library car with progress and installs it. */
-  async function loadCar(url: string, label: string, carSpec: VehicleSpec, yawDeg = 0): Promise<string> {
+  async function loadCar(url: string, label: string, carSpec: VehicleSpec, load: CarLoadOptions = {}): Promise<string> {
     if (!url) throw new Error("This car has no model file");
     onToast(`Downloading ${label}…`);
     let data: ArrayBuffer;
@@ -3015,7 +3080,7 @@ export function createGame(opts: GameOptions): GameHandle {
     const scene = await new Promise<THREE.Group>((resolve, reject) => {
       modelLoader().parse(data, "", (g) => resolve(g.scene as THREE.Group), reject);
     });
-    const report = installModel(scene, label, carSpec, yawDeg);
+    const report = installModel(scene, label, carSpec, load);
     onToast(report);
     return report;
   }

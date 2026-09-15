@@ -100,6 +100,16 @@ export interface GameOptions {
   onDressed?: () => void;
 }
 
+/**
+ * How a model the rigger cannot see the way its author did should be turned:
+ * `turn` rotates the body *and* re-labels the wheels, so a car facing
+ * backwards still steers from its nose. 0 or 180.
+ */
+export interface CarLoadOptions {
+  /** degrees, clockwise seen from above */
+  turn?: number;
+}
+
 export interface GameHandle {
   destroy(): void;
   /** Procedural body of that class — the fallback while a model downloads. */
@@ -118,7 +128,7 @@ export interface GameHandle {
    * Installs a car from the library: fetches the GLB, measures it, rigs the
    * wheels it can find and drives it with the given physics spec.
    */
-  loadCar(url: string, label: string, spec: VehicleSpec, yawDeg?: number): Promise<string>;
+  loadCar(url: string, label: string, spec: VehicleSpec, opts?: CarLoadOptions): Promise<string>;
   /**
    * Swaps the built-in city for an imported map: the model is downloaded,
    * measured and read into a drivable surface. `onProgress` gets 0..1 and a

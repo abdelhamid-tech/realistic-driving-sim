@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { createGame } from "@/game/engine";
 import {
-  CAR_LIBRARY, DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes, type CarEntry, type ImportedCar,
+  CAR_LIBRARY, DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes,
+  isImportedCarId, type CarEntry, type ImportedCar,
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
 import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type RemoteDriver, type Telemetry, type Weather } from "@/game/types";
@@ -93,6 +94,10 @@ export default function Drive() {
 
   const [carId, setCarId] = useState(DEFAULT_CAR_ID);
   const [equipping, setEquipping] = useState<string | null>(null);
+  /* what actually happened to the chosen model: the difference between "the
+     car is selected" and "the car is on the road" used to be a toast nobody
+     could read while driving */
+  const [modelState, setModelState] = useState<ModelState | null>(null);
   const [paint, setPaint] = useState(PAINT_COLORS[4]);
   const [weather, setWeather] = useState<Weather>("clear");
   const [hour, setHour] = useState(16.2);
@@ -193,21 +198,36 @@ export default function Drive() {
   useEffect(() => {
     if (!booted) return;
     const game = gameRef.current;
-    /* imported cars live in the garage too: look in the whole list */
-    const target = carFromAll(carId, importedCars ?? []) ?? carById(DEFAULT_CAR_ID);
-    if (!game || !target.url || loadedCarRef.current === carId) return;
-    loadedCarRef.current = carId;
+    if (!game) return;
+    /* An imported car picked before its row has arrived is not a missing car:
+       wait for the garage list instead of silently equipping the default, and
+       never mark a car as loaded when that is not what was installed. */
+    const asked = carFromAll(carId, importedCars ?? []);
+    if (!asked && isImportedCarId(carId) && importedCars === undefined) return;
+    const target = asked ?? carById(DEFAULT_CAR_ID);
+    const signature = `${target.id}|${target.url}`;
+    if (!target.url || loadedCarRef.current === signature) return;
+    loadedCarRef.current = signature;
     let live = true;
     setEquipping(target.id);
+    setModelState({ id: target.id, name: target.name, state: "loading", note: "" });
     game
-      .loadCar(target.url, target.name, carSpec(target), target.turn ?? 0)
+      .loadCar(target.url, target.name, carSpec(target), { turn: target.turn ?? 0 })
       .then((report) => {
-        if (live) toast.success(report, { description: target.author + " / " + target.license });
+        if (live) {
+          setModelState({ id: target.id, name: target.name, state: "ready", note: report });
+          toast.success(report, { description: target.author + " / " + target.license });
+        }
       })
       .catch((err) => {
+        /* the model never made it: say so instead of leaving the player
+           driving something else and wondering where their car went */
+        loadedCarRef.current = null;
         if (live) {
+          const why = err instanceof Error ? err.message : String(err);
+          setModelState({ id: target.id, name: target.name, state: "failed", note: why });
           toast.error("Could not load the " + target.name, {
-            description: err instanceof Error ? err.message : String(err),
+            description: why + " — the body you see is the fallback for its class.",
           });
         }
       })
@@ -538,6 +558,9 @@ export default function Drive() {
           <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
             {spec.klass} / {spec.drivetrain.toUpperCase()} / {spec.mass} KG
           </div>
+          <div className="mt-1">
+            <ModelLine model={modelState} entry={entry} compact />
+          </div>
         </div>
 
         {/* mode pills */}
@@ -714,6 +737,7 @@ export default function Drive() {
           worlds={worldList}
           worldName={worldName}
           onWorld={chooseWorld}
+          model={modelState}
         />
       )}
 
@@ -1208,9 +1232,48 @@ function SidePanel({ title, onClose, children }: { title: string; onClose: () =>
   );
 }
 
+export interface ModelState {
+  id: string;
+  name: string;
+  state: "loading" | "ready" | "failed";
+  note: string;
+}
+
+/** One line that says whether the chosen car's model is really on the road. */
+function ModelLine({ model, entry, compact }: { model: ModelState | null; entry: CarEntry; compact?: boolean }) {
+  const mine = model && model.id === entry.id ? model : null;
+  const state = !mine ? "loading" : mine.state;
+  const label =
+    state === "ready"
+      ? "MODEL ON THE ROAD"
+      : state === "failed"
+        ? "MODEL FAILED — FALLBACK BODY"
+        : "MODEL LOADING…";
+  const tone =
+    state === "ready" ? "text-emerald-400/85" : state === "failed" ? "text-destructive" : "text-signal";
+  return (
+    <div className={"flex items-center gap-2 font-mono " + (compact ? "text-[10px] tracking-[0.14em]" : "text-[9px] tracking-[0.2em]")}>
+      <span className={"inline-block size-1.5 rounded-full " + (state === "ready" ? "bg-emerald-400/85" : state === "failed" ? "bg-destructive" : "bg-signal animate-pulse")} />
+      <span className={tone}>{label}</span>
+      {mine?.note && !compact ? (
+        <span className="truncate text-muted-foreground">/ {mine.note}</span>
+      ) : null}
+      {mine?.state === "failed" ? (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="cursor-pointer border border-destructive/60 px-1.5 py-0.5 text-[9px] tracking-[0.16em] text-destructive hover:bg-destructive/15"
+        >
+          RETRY
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function IntroOverlay({
   entry, spec, equipping, onChooseCar, onStart, paint, onPaint, weather, onWeather, hour, onHour,
-  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld, garage,
+  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld, garage, model,
 }: {
   entry: CarEntry;
   spec: VehicleSpec;
@@ -1232,6 +1295,7 @@ function IntroOverlay({
   worldName: string;
   onWorld: (source: WorldMapSource) => void;
   garage: CarEntry[];
+  model: ModelState | null;
 }) {
   return (
     <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 backdrop-blur-[3px]">
@@ -1297,6 +1361,9 @@ function IntroOverlay({
                   </button>
                 );
               })}
+            </div>
+            <div className="mt-2 border border-white/10 bg-white/4 px-2 py-1.5">
+              <ModelLine model={model} entry={entry} />
             </div>
           </div>
 

@@ -49,7 +49,8 @@ export interface CarEntry {
   detail: string;
   /**
    * Only for the rare model the rigger points backwards: 180 turns the body
-   * around on its wheels without touching the physics. Degrees.
+   * around *and* re-labels the wheels, so the car still steers from its nose.
+   * Degrees, 0 or 180.
    */
   turn?: number;
   /** the driving character of this car */
