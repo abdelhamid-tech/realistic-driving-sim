@@ -40,6 +40,10 @@ const MATERIALS = [
   { name: "leaf",     color: [0.16, 0.29, 0.11], rough: 1,    uv: 3 },
   { name: "tile",     color: [0.58, 0.24, 0.18], rough: 0.9,  uv: 5 },
   { name: "yellow",   color: [0.85, 0.62, 0.10], rough: 0.8,  uv: 0 },
+  { name: "lampOff",  color: [0.18, 0.18, 0.18], rough: 0.6,  uv: 0 },
+  { name: "sigRed",   color: [0.45, 0.05, 0.04], rough: 0.5,  uv: 0, emissive: [0.9, 0.06, 0.05] },
+  { name: "sigAmber", color: [0.45, 0.28, 0.03], rough: 0.5,  uv: 0, emissive: [0.9, 0.55, 0.04] },
+  { name: "sigGreen", color: [0.04, 0.36, 0.10], rough: 0.5,  uv: 0, emissive: [0.05, 0.85, 0.16] },
 ];
 const M = Object.fromEntries(MATERIALS.map((m, i) => [m.name, i]));
 
@@ -93,6 +97,7 @@ const BRIDGES = [
   { x: 0,    half: 14, kind: "girder" },
   { x: 320,  half: 13, kind: "suspension" },
   { x: 640,  half: 11, kind: "pontoon" },
+  { x: 820,  half: 10, kind: "bascule" },   // a drawbridge near the industrial bank
 ];
 const DECK_Y = 9;              // bridge deck height over the water
 const DECK_T = 1.2;            // deck slab thickness
@@ -201,6 +206,25 @@ function buildBridges() {
           );
           if (i % 4 === 0) G.box(s - 0.1, DECK_Y, z0 - 0.1, s + 0.1, cat(t0), z0 + 0.1, M.cable);
         }
+      }
+    } else if (b.kind === "bascule") {
+      /* a drawbridge: two trunnion towers, counterweight boxes, and the deck
+         itself is split at the middle with the uplift seams visible */
+      for (const z of [za + 12, zb - 12]) {
+        for (const s of [x0 + 1.5, x1 - 1.5]) {
+          G.box(s - 1.2, WATER_Y - 3, z - 1.2, s + 1.2, DECK_Y + 14, z + 1.2, M.concrete);
+        }
+        /* counterweights hanging between the towers' tops */
+        for (const s of [x0 + 3.5, x1 - 3.5]) {
+          G.box(s - 1.6, DECK_Y + 8, z - 2.4, s + 1.6, DECK_Y + 12.5, z + 2.4, M.steel);
+          G.box(s - 0.3, DECK_Y + 12.5, z - 0.3, s + 0.3, DECK_Y + 14, z + 0.3, M.steel);
+        }
+      }
+      /* the split: a raised seam and warning stripes across both leaves */
+      const mid = (za + zb) / 2;
+      G.box(x0 + 2, DECK_Y + 0.02, mid - 0.35, x1 - 2, DECK_Y + 0.14, mid + 0.35, M.yellow);
+      for (let z = mid - 8; z < mid + 8; z += 2.4) {
+        G.box(x0 + 2, DECK_Y + 0.01, z, x1 - 2, DECK_Y + 0.06, z + 1.2, M.paint);
       }
     } else {
       /* pontoon: the deck rests on floating concrete caissons */
@@ -560,6 +584,62 @@ function buildQuays() {
   /* moored barges? no vehicles — leave the water empty */
 }
 
+/* ----------------------------------------------------------- traffic lights */
+/* Real three-aspect signals at the junctions: mast arm over the approach,     */
+/* three lamps in a visored head, a pedestrian box on the pole. Each junction  */
+/* gets one signal per approach, facing the traffic it stops.                 */
+const SIGNALS = [];   // { x, z, yaw } recorded so the game can cycle them
+function trafficSignal(x, z, yaw) {
+  /* mast pole + arm reaching over the road */
+  const px = x - Math.sin(yaw) * 7.5, pz = z - Math.cos(yaw) * 7.5;
+  G.box(px - 0.18, 0, pz - 0.18, px + 0.18, 6.4, pz + 0.18, M.steel);
+  /* the arm: from the pole toward the lamp head over the lane */
+  const ax = (px + x) / 2, az = (pz + z) / 2;
+  G.box(
+    Math.min(px, x) - 0.12, 6.1, Math.min(pz, z) - 0.12,
+    Math.max(px, x) + 0.12, 6.34, Math.max(pz, z) + 0.12, M.steel,
+  );
+  /* head: a dark box holding three lamps, facing oncoming traffic (yaw) */
+  const hw = 0.55, hd = 0.42, hh = 1.55;
+  G.box(x - hw, 4.7, z - hd, x + hw, 4.7 + hh, z + hd, M.lampOff);
+  /* visor over each lamp (a small lip above it) */
+  const lamps = [
+    { y: 6.0, mat: M.sigRed },
+    { y: 5.45, mat: M.sigAmber },
+    { y: 4.9, mat: M.sigGreen },
+  ];
+  for (const l of lamps) {
+    G.box(x - 0.34, l.y - 0.2, z - hd - 0.02, x + 0.34, l.y + 0.2, z - hd + 0.06, l.mat);
+    G.box(x - 0.42, l.y + 0.2, z - hd - 0.24, x + 0.42, l.y + 0.28, z - hd + 0.04, M.lampOff);
+  }
+  /* pedestrian box + button on the mast pole */
+  G.box(px - 0.22, 2.6, pz - 0.14, px + 0.22, 3.25, pz + 0.14, M.lampOff);
+  G.box(px - 0.1, 2.95, pz - 0.2, px + 0.1, 3.12, pz - 0.14, M.sigAmber);
+  /* control cabinet at the pole base */
+  G.box(px + 0.6, 0, pz - 0.45, px + 1.25, 1.15, pz + 0.45, M.yellow);
+  SIGNALS.push({ x, z, yaw });
+}
+
+function buildSignals() {
+  /* one signal per approach at each junction of the avenues with the streets,
+     but only on land: skip anything in the river or on its banks */
+  for (const z of AVE) {
+    for (const x of ST) {
+      for (const [dx, dz, yaw] of [
+        [-1, 0, Math.PI / 2],   // west approach, head over the westbound lane
+        [1, 0, -Math.PI / 2],
+        [0, -1, 0],
+        [0, 1, Math.PI],
+      ]) {
+        const sx = x + dx * (ST_HALF + 5);
+        const sz = z + dz * (AVE_HALF + 5);
+        if (riverDist(sx, sz) < riverHalf(sx) + BANK) continue;
+        trafficSignal(sx, sz, yaw);
+      }
+    }
+  }
+}
+
 /* -------------------------------------------------------------------- build */
 buildGround();
 buildBridges();
@@ -568,6 +648,7 @@ buildInterchange();
 buildDistricts();
 streetMarkings();
 buildQuays();
+buildSignals();
 
 /* street lamps along the ring boulevards */
 for (const z of [AVE[0], AVE[AVE.length - 1]]) {
@@ -584,5 +665,5 @@ mkdirSync("public/maps", { recursive: true });
 writeFileSync("public/maps/riverbend.glb", glb);
 console.log(
   `public/maps/riverbend.glb — ${(glb.length / 1024).toFixed(0)} KB, ` +
-    `${G.triangles()} triangles, ${primitives.length} materials`,
+    `${G.triangles()} triangles, ${primitives.length} materials, ${SIGNALS.length} signals`,
 );

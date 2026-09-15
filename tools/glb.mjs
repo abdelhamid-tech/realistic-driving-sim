@@ -94,6 +94,7 @@ export function writeGLB({ materials, primitives, generator = "open-city-tools" 
         metallicFactor: m.metal ?? 0,
         roughnessFactor: m.rough ?? 0.9,
       },
+      ...(m.emissive ? { emissiveFactor: m.emissive } : {}),
     })),
     accessors,
     bufferViews,
