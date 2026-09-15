@@ -22,16 +22,20 @@ const KEY_STORE = "world-import-key";
 const TURNS = [0, 90, 180, 270];
 
 export default function Import() {
-  const rows = useQuery(api.maps.list);
+  const [key, setKey] = useState(() => window.sessionStorage.getItem(KEY_STORE) ?? "");
+  const [unlocked, setUnlocked] = useState(false);
+
+  /* the owner's whole shelf: every map, published or not */
+  const owned = useQuery(api.maps.owned, unlocked ? { password: key } : "skip");
+
   const unlock = useMutation(api.maps.unlock);
   const uploadUrl = useMutation(api.maps.uploadUrl);
   const register = useMutation(api.maps.register);
   const setActive = useMutation(api.maps.setActive);
+  const setPublished = useMutation(api.maps.setPublished);
   const tune = useMutation(api.maps.tune);
   const removeMap = useMutation(api.maps.remove);
 
-  const [key, setKey] = useState(() => window.sessionStorage.getItem(KEY_STORE) ?? "");
-  const [unlocked, setUnlocked] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -204,7 +208,7 @@ export default function Import() {
   }
 
   /* ------------------------------------------------------------------ unlocked */
-  const list = (rows ?? []) as unknown as WorldMapRow[];
+  const list = (owned ?? []) as unknown as WorldMapRow[];
 
   return (
     <div className="min-h-screen bg-carbon px-6 py-12 text-chalk">
@@ -247,6 +251,8 @@ export default function Import() {
             .glb on its own · .zip holding a .glb or .fbx with its textures · .fbx with textures inside
             <br />
             No size limit. The file is stored on the server and becomes the world the game drives on.
+            <br />
+            A fresh import is private: publish it below to offer it to everyone.
           </p>
 
           <div className="mx-auto mt-4 flex max-w-sm gap-2">
@@ -319,6 +325,7 @@ export default function Import() {
                           <Check className="size-3 text-signal" /> ACTIVE
                         </>
                       ) : null}
+                      {row.published ? <span className="text-signal">PUBLISHED</span> : "PRIVATE"} ·{" "}
                       {row.kind.toUpperCase()} · {formatBytes(row.bytes)}
                     </span>
                   </div>
@@ -353,6 +360,24 @@ export default function Import() {
                       title="Keep the model's own units instead of fitting it to 1200 m"
                     >
                       TRUE SCALE
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={row.published ? "outline" : "default"}
+                      className="cursor-pointer font-mono text-[10px]"
+                      onClick={() =>
+                        void guarded(
+                          () =>
+                            setPublished({
+                              password: key,
+                              id: row.id as never,
+                              published: !row.published,
+                            }),
+                          "Publishing",
+                        )
+                      }
+                    >
+                      {row.published ? "UNPUBLISH" : "PUBLISH FOR EVERYONE"}
                     </Button>
                     <Button
                       size="sm"
@@ -443,6 +468,10 @@ export default function Import() {
             Changing any setting reloads the world the next time you open the game. The defaults are
             usually right: the model is fitted to 1200 m across, thin vertical faces become walls, and
             the start line is put on the widest street. If the streets run the wrong way, rotate 90°.
+            <br />
+            PUBLISHED maps appear in every player's world picker, in the garage menu and on the start
+            screen; PRIVATE ones only exist for you (the active one is still what everyone loads,
+            because it is the world the game is running).
           </p>
         </div>
 

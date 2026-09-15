@@ -80,6 +80,8 @@ const schema = defineSchema(
       /** "glb" | "zip" | "fbx" — how the loader has to open it */
       kind: v.string(),
       active: v.boolean(),
+      /** published maps are offered to every player in the world picker */
+      published: v.optional(v.boolean()),
       /** metres across the longest side; 0 keeps the model's own units */
       fitTo: v.optional(v.number()),
       /** degrees to yaw the model so its streets line up with the car */

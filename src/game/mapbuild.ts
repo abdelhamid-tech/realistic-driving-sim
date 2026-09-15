@@ -260,12 +260,13 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
   }
 
   /* ------------------------------------------------------------- tidy up */
-  const baseY = percentileLowest(layers, counts, nx, nz);
+  const baseY = streetLevel(layers, counts, nx, nz);
   let topY = -Infinity;
   /* a cell with no surface at all is a hole: let it borrow from a neighbour,
      then give up and treat it as void — an invisible wall, so nobody drives
      off the edge of the model into nothing. */
   const voidCells = dilate(layers, counts, nx, nz, baseY);
+  for (let idx = 0; idx < nx * nz; idx++) if (!counts[idx]) solid[idx] = 1;
   for (let idx = 0; idx < nx * nz; idx++) {
     if (counts[idx] && layers[idx * LAYERS + counts[idx] - 1] > topY) {
       topY = layers[idx * LAYERS + counts[idx] - 1];
@@ -545,6 +546,9 @@ export function findSpawn(F: MapField): MapSpawn {
     for (let i = W; i < nx - W; i++) {
       const idx = j * nx + i;
       if (F.solid[idx] || !F.counts[idx]) continue;
+      /* below the city's own level is a dock, a canal or a rail cut: the car
+         starts on the streets, never in the water */
+      if (F.layers[idx * LAYERS] < F.baseY - 0.8) continue;
       const open = window(i - R, j - R, i + R, j + R) / ((2 * R + 1) * (2 * R + 1));
       if (open < 0.985) continue;                 /* room to put a car down */
       const city = solidWindow(i - W, j - W, i + W, j + W) / ((2 * W + 1) * (2 * W + 1));
@@ -566,6 +570,7 @@ export function findSpawn(F: MapField): MapSpawn {
       for (let i = R; i < nx - R; i++) {
         const idx = j * nx + i;
         if (F.solid[idx] || !F.counts[idx]) continue;
+        if (F.layers[idx * LAYERS] < F.baseY - 0.8) continue;
         const open = window(i - R, j - R, i + R, j + R) / ((2 * R + 1) * (2 * R + 1));
         if (open > bestOpen) {
           bestOpen = open;
@@ -609,17 +614,41 @@ export function findSpawn(F: MapField): MapSpawn {
 /*  helpers                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function percentileLowest(layers: Float32Array, counts: Uint8Array, nx: number, nz: number) {
-  const lows: number[] = [];
+/**
+ * The level the city is mostly built at: the modal lowest surface, refined
+ * over the cells that share it. A percentile would land on the water (or on a
+ * rail yard) whenever one big flat thing is lower than the streets; the mode
+ * lands on the streets, because that is where the area is.
+ */
+function streetLevel(layers: Float32Array, counts: Uint8Array, nx: number, nz: number) {
+  const bin = 0.5;
+  const votes = new Map<number, number>();
   for (let idx = 0; idx < nx * nz; idx++) {
     if (!counts[idx]) continue;
-    lows.push(layers[idx * LAYERS]);
+    const h = layers[idx * LAYERS];
+    const key = Math.round(h / bin);
+    votes.set(key, (votes.get(key) ?? 0) + 1);
   }
-  if (!lows.length) return 0;
-  lows.sort((a, b) => a - b);
-  /* street level is the low end of the distribution: roofs are rare, streets
-     are everywhere, so the 20th percentile lands on the road every time */
-  return lows[Math.floor(lows.length * 0.2)];
+  if (!votes.size) return 0;
+  let bestKey = 0;
+  let bestVotes = -1;
+  for (const [key, n] of votes) {
+    if (n > bestVotes || (n === bestVotes && Math.abs(key) < Math.abs(bestKey))) {
+      bestVotes = n;
+      bestKey = key;
+    }
+  }
+  /* average the cells that landed in the winning bucket */
+  let sum = 0;
+  let n = 0;
+  for (let idx = 0; idx < nx * nz; idx++) {
+    if (!counts[idx]) continue;
+    const h = layers[idx * LAYERS];
+    if (Math.round(h / bin) !== bestKey) continue;
+    sum += h;
+    n++;
+  }
+  return n ? sum / n : bestKey * bin;
 }
 
 /** Cells with no surface borrow one from a neighbour. Returns how many stayed void. */
@@ -627,7 +656,8 @@ function dilate(layers: Float32Array, counts: Uint8Array, nx: number, nz: number
   let remaining = 0;
   for (let idx = 0; idx < nx * nz; idx++) if (!counts[idx]) remaining++;
   let pass = 0;
-  while (remaining > 0 && pass < 8) {
+  /* enough passes to cross the whole padded border, corners included */
+  while (remaining > 0 && pass < 24) {
     const take: number[] = [];
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {

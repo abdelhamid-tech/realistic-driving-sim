@@ -53,6 +53,8 @@ export interface Telemetry {
   slip: number[];
   load: number[];
   fps: number;
+  /** the quality tier actually in use, e.g. "AUTO / MEDIUM" */
+  quality: string;
   headlights: boolean;
   camera: number;
   weather: Weather;
@@ -105,6 +107,8 @@ export interface GameHandle {
   setPaint(hex: number): void;
   setHeadlights(on: boolean): void;
   setPaused(paused: boolean): void;
+  /** -1 keeps it automatic; 0 low, 1 medium, 2 high */
+  setQuality(mode: number): void;
   reset(): void;
   /**
    * Installs a car from the library: fetches the GLB, measures it, rigs the

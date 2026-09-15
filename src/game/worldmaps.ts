@@ -54,6 +54,30 @@ export function isProcedural(src: WorldMapSource) {
   return src.kind === "procedural" || !src.url;
 }
 
+/* ---------------------------------------------------------------------------
+ *  MAPS THE GAME SHIPS WITH
+ *  Real geometry, built from code (tools/build-harbor.mjs), served out of
+ *  public/maps/. They are in metres already, so they are not re-fitted.
+ * -------------------------------------------------------------------------*/
+export const BUILT_IN_MAPS: WorldMapSource[] = [
+  {
+    id: "harbor-city",
+    name: "HARBOR CITY",
+    kind: "glb",
+    url: "/maps/harbor-city.glb",
+    bytes: 518936,
+    fitTo: 0,
+    turn: 0,
+    cell: 4,
+    wallHeight: 2.2,
+    spawn: null,
+    credit: "840 × 660 m port city · quays, piers, an elevated viaduct",
+  },
+];
+
+/** What everybody can drive: the built city plus the shipped maps. */
+export const WORLD_MAP_LIST: WorldMapSource[] = [PROCEDURAL_MAP, ...BUILT_IN_MAPS];
+
 /** One row of the `worldMaps` table, as the query returns it. */
 export interface WorldMapRow {
   id: string;
@@ -63,6 +87,8 @@ export interface WorldMapRow {
   kind: string;
   bytes: number;
   active: boolean;
+  /** published maps show up in everybody's world picker */
+  published?: boolean;
   fitTo: number | null;
   turn: number;
   cell: number | null;
@@ -86,7 +112,7 @@ export function mapFromRow(row: WorldMapRow): WorldMapSource | null {
     cell: row.cell ?? 0,
     wallHeight: row.wallHeight ?? 0,
     spawn: row.spawn ?? null,
-    credit: `${row.fileName} · ${kind.toUpperCase()}`,
+    credit: `${row.fileName} · ${kind.toUpperCase()}${row.published ? " · published" : ""}`,
   };
 }
 

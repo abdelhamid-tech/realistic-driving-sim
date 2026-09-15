@@ -163,6 +163,70 @@ export function createGame(opts: GameOptions): GameHandle {
   const worldRoot = new THREE.Group();
   scene.add(worldRoot);
 
+  /* =====================================================================
+   *  QUALITY — three tiers, chosen by measurement unless the player pins one
+   *
+   *  A driving game has one job: keep the frame rate steady while the world
+   *  streams past. So the frame rate is measured, and when it sags the
+   *  expensive things come off in order — resolution first, then shadow
+   *  detail, then traffic, then effects — and they come back when there is
+   *  headroom again. Pinning a tier skips the whole thing.
+   * ===================================================================*/
+  const QUALITY_NAMES = ["LOW", "MEDIUM", "HIGH"];
+  const TIERS = [
+    { pixel: 1, shadowPx: 512, shadowsOn: false, traffic: 5, particles: 0.35, rain: 0.35 },
+    { pixel: 1.25, shadowPx: 1024, shadowsOn: true, traffic: 9, particles: 0.7, rain: 0.7 },
+    { pixel: 2, shadowPx: 2048, shadowsOn: true, traffic: 14, particles: 1, rain: 1 },
+  ];
+  /** -1 is automatic; 0..2 pin a tier */
+  let qualityMode = -1;
+  let qualityTier = 2;
+  /** grace period: the first seconds are always slow (shaders, model loads) */
+  let qualityHold = 4;
+  let fastFor = 0;
+
+  function applyQuality(tier: number, announce = false) {
+    const t = clamp(tier | 0, 0, TIERS.length - 1);
+    const q = TIERS[t];
+    const changed = t !== qualityTier || announce;
+    qualityTier = t;
+    pixelRatioCap = Math.min(window.devicePixelRatio || 1, q.pixel);
+    renderer.setPixelRatio(pixelRatioCap);
+    onResize();
+    if (sun.shadow.mapSize.width !== q.shadowPx) {
+      sun.shadow.mapSize.set(q.shadowPx, q.shadowPx);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    }
+    if (renderer.shadowMap.enabled !== q.shadowsOn) {
+      renderer.shadowMap.enabled = q.shadowsOn;
+      /* every material has to recompile when the shadow pass comes or goes */
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const list = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of list) if (mat) mat.needsUpdate = true;
+      });
+    }
+    while (traffic.length > q.traffic) {
+      const tc = traffic.pop();
+      if (tc) scene.remove(tc.grp);
+    }
+    rainGeo.setDrawRange(0, Math.max(2, Math.floor(RAIN_N * q.rain) * 2));
+    if (changed && announce) onToast(`Quality · ${QUALITY_NAMES[t]}`);
+  }
+
+  function setQuality(mode: number) {
+    qualityMode = mode < 0 ? -1 : clamp(mode | 0, 0, TIERS.length - 1);
+    qualityHold = 2;
+    fastFor = 0;
+    if (qualityMode === -1) {
+      onToast("Quality · automatic");
+      return;
+    }
+    applyQuality(qualityMode, true);
+  }
+
   let envMap: THREE.Texture | null = null;
   const pmrem = new THREE.PMREMGenerator(renderer);
   function rebuildEnvironment() {
@@ -1015,6 +1079,10 @@ export function createGame(opts: GameOptions): GameHandle {
     const ky = 1 - Math.exp(-dt * 8);
     for (const rc of remoteCars.values()) {
       const p = rc.root.position;
+      /* nobody can see a car four hundred metres away through the fog */
+      const far = (p.x - car.pos.x) ** 2 + (p.z - car.pos.z) ** 2 > 420 * 420;
+      rc.root.visible = !far;
+      if (far) continue;
       p.x += (rc.tx - p.x) * k;
       p.z += (rc.tz - p.z) * k;
       const want = Math.max(groundH(p.x, p.z) + 0.03, rc.ty);
@@ -3138,12 +3206,12 @@ export function createGame(opts: GameOptions): GameHandle {
         if (wc.s > 1.05 && spd > 4) rate = Math.min(22, (wc.s - 1) * 9);
         if (car.hand && WHEELS[i].driven && spd > 4) rate = Math.max(rate, 10);
         if (wc.surf === "GRASS" && spd > 6) rate = Math.max(rate, spd * 0.18);
-        smokeAcc[i] += dt * rate;
+        smokeAcc[i] += dt * rate * TIERS[qualityTier].particles;
         while (smokeAcc[i] >= 1) {
           smokeAcc[i] -= 1;
           smoke.spawn(wc.cp, car.vel, spd * 0.055);
         }
-        if (envState.wet > 0.5 && spd > 12) {
+        if (envState.wet > 0.5 && spd > 12 && TIERS[qualityTier].particles > 0.4) {
           const sprayRate = Math.min(30, spd * 0.35);
           if (Math.random() < dt * sprayRate) spray.spawn(wc.cp, car.vel, 0.06 + spd * 0.004);
         }
@@ -3215,6 +3283,7 @@ export function createGame(opts: GameOptions): GameHandle {
       slip,
       load,
       fps: avgFps,
+      quality: qualityMode === -1 ? `AUTO / ${QUALITY_NAMES[qualityTier]}` : QUALITY_NAMES[qualityTier],
       headlights: headlightsOn,
       camera: camMode,
       weather: envState.weather,
@@ -3238,6 +3307,28 @@ export function createGame(opts: GameOptions): GameHandle {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (dt > 0) avgFps += (1 / dt - avgFps) * 0.02;
+
+    /* automatic quality: step down when it sags, back up when it is easy,
+       and never thrash — each step holds for a few seconds */
+    if (qualityMode === -1) {
+      qualityHold = Math.max(0, qualityHold - dt);
+      if (qualityHold === 0) {
+        if (avgFps < 44 && qualityTier > 0) {
+          applyQuality(qualityTier - 1);
+          qualityHold = 4;
+          fastFor = 0;
+        } else if (avgFps > 57 && qualityTier < TIERS.length - 1) {
+          fastFor += dt;
+          if (fastFor > 6) {
+            applyQuality(qualityTier + 1);
+            qualityHold = 8;
+            fastFor = 0;
+          }
+        } else {
+          fastFor = 0;
+        }
+      }
+    }
     uTime.value = now * 0.001;
     framePrevVel.copy(car.vel);
     if (worldMap) mapRefY = car.pos.y;
@@ -3551,6 +3642,11 @@ export function createGame(opts: GameOptions): GameHandle {
     const spawn = source.spawn ?? findSpawn(field);
     worldMap = { source, root, field, spawn, blobs: opened.blobs };
     dressMapModel(root, field.stats.triangles > MAP_SHADOW_TRI_LIMIT);
+    /* nothing in it ever moves: freeze the whole matrix tree */
+    root.updateMatrixWorld(true);
+    root.traverse((o) => {
+      o.matrixAutoUpdate = false;
+    });
     respawn();
     onProgress?.(1, "ready");
 
@@ -3573,6 +3669,7 @@ export function createGame(opts: GameOptions): GameHandle {
   car.reset();
   updateEnvironment(true);
   rebuildEnvironment();
+  applyQuality(2);
   populateCityCars();
   onResize();
   raf = requestAnimationFrame(frame);
@@ -3613,6 +3710,7 @@ export function createGame(opts: GameOptions): GameHandle {
       headlightsOn = on;
     },
     setPaused,
+    setQuality,
     reset() {
       respawn();
       resetCones();

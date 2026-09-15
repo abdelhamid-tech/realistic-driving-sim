@@ -15,7 +15,9 @@ import {
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
 import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type RemoteDriver, type Telemetry, type Weather } from "@/game/types";
-import { PROCEDURAL_MAP, mapFromRow, type WorldMapRow, type WorldMapSource } from "@/game/worldmaps";
+import {
+  PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
+} from "@/game/worldmaps";
 import { ArrowLeft, Check, Cloud, CloudRain, Download, Gauge, Link2, Loader2, Moon, Settings2, Sun, Users, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
@@ -97,6 +99,7 @@ export default function Drive() {
   const [camera, setCamera] = useState(0);
   const [volume, setVolume] = useState(0.5);
   const [headlights, setHeadlights] = useState(false);
+  const [quality, setQualityMode] = useState(-1);
 
   const [room, setRoom] = useState(readRoom);
   const [roomDraft, setRoomDraft] = useState(readRoom);
@@ -270,6 +273,17 @@ export default function Drive() {
   const activeMap = useMemo(() => {
     const row = worldRows.find((m) => m.active);
     return row ? mapFromRow(row) : null;
+  }, [worldRows]);
+
+  /* what everybody can drive: the built city, the shipped maps, and anything
+     the owner has published */
+  const worldList = useMemo(() => {
+    const out: WorldMapSource[] = [...WORLD_MAP_LIST];
+    for (const row of worldRows) {
+      const source = mapFromRow(row);
+      if (source && !out.some((w) => w.id === source.id)) out.push(source);
+    }
+    return out;
   }, [worldRows]);
 
   const chooseWorld = useCallback((source: WorldMapSource) => {
@@ -563,6 +577,7 @@ export default function Drive() {
           </div>
           <div className="mt-2 flex justify-between font-mono text-[9px] text-muted-foreground">
             <span>{tel?.fps ? Math.round(tel.fps) + " FPS" : "-"}</span>
+            <span>{worldName}</span>
             <span>{(tel?.physicsHz ?? 240) + " HZ PHYSICS"}</span>
             <span>{(tel?.traffic ?? 0) + " CARS"}</span>
           </div>
@@ -574,6 +589,7 @@ export default function Drive() {
           <div className="px-1 pb-0.5 font-mono text-[8px] tracking-[0.2em] text-muted-foreground">
             {(tel?.gear ?? "D1") + " / " + WEATHER_LABEL[weather].toUpperCase()}
             {headlights ? " / LIGHTS" : ""}
+            {tel?.quality ? " / " + tel.quality : ""}
             {netOn ? " / " + (1 + othersOnline) + " ONLINE" : ""}
           </div>
         </div>
@@ -677,6 +693,9 @@ export default function Drive() {
           room={room}
           netOn={netOn}
           onNet={setNetOn}
+          worlds={worldList}
+          worldName={worldName}
+          onWorld={chooseWorld}
         />
       )}
 
@@ -792,33 +811,18 @@ export default function Drive() {
 
           <Group label="Monde / world">
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => chooseWorld(PROCEDURAL_MAP)}
-                className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
-                  worldName === PROCEDURAL_MAP.name
-                    ? "border-signal bg-signal/10"
-                    : "border-white/12 hover:border-signal/50"
-                )}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-display text-sm font-bold tracking-tight">APEX CITY</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {worldName === PROCEDURAL_MAP.name ? "DRIVING" : "BUILT-IN"}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                  The procedural city: streets both ways, 1,900 buildings, live traffic.
-                </div>
-              </button>
-
-              {worldRows.map((row) => {
-                const source = mapFromRow(row);
-                if (!source) return null;
+              {worldList.map((source) => {
                 const driving = worldName === source.name;
+                const badge = driving
+                  ? "DRIVING"
+                  : source.kind === "procedural"
+                    ? "BUILT-IN"
+                    : source.url.startsWith("/maps/")
+                      ? "SHIPPED"
+                      : source.kind.toUpperCase() + (source.bytes ? " · " + formatBytes(source.bytes) : "");
                 return (
                   <button
-                    key={row.id}
+                    key={source.id}
                     type="button"
                     onClick={() => chooseWorld(source)}
                     className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
@@ -827,12 +831,10 @@ export default function Drive() {
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="font-display text-sm font-bold tracking-tight">{source.name}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {driving ? "DRIVING" : row.kind.toUpperCase() + " · " + formatBytes(row.bytes)}
-                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{badge}</span>
                     </div>
-                    <div className="mt-1 truncate font-mono text-[10px] leading-relaxed text-muted-foreground">
-                      {source.credit} · {source.fitTo > 0 ? source.fitTo + " m across" : "true scale"}
+                    <div className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                      {source.credit}
                     </div>
                   </button>
                 );
@@ -929,6 +931,37 @@ export default function Drive() {
                 </button>
               ))}
             </div>
+          </Group>
+
+          <Group label="Performance">
+            <div className="flex flex-wrap gap-1.5">
+              {["AUTO", "HIGH", "MEDIUM", "LOW"].map((label, i) => {
+                const value = i - 1;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      setQualityMode(value);
+                      gameRef.current?.setQuality(value);
+                    }}
+                    className={"cursor-pointer border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors " + (
+                      quality === value
+                        ? "border-signal bg-signal font-semibold text-carbon"
+                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {tel ? `RUNNING AT ${tel.quality} · ${Math.round(tel.fps)} FPS` : "MEASURING..."}
+              <br />
+              Automatic drops resolution, shadow detail, traffic and tyre smoke when the frame rate
+              sags, and brings them back when it recovers. Pin a tier if you would rather decide.
+            </p>
           </Group>
 
           <Group label="Assists">
@@ -1159,7 +1192,7 @@ function SidePanel({ title, onClose, children }: { title: string; onClose: () =>
 
 function IntroOverlay({
   entry, spec, equipping, onChooseCar, onStart, paint, onPaint, weather, onWeather, hour, onHour,
-  isAuthenticated, others, room, netOn, onNet,
+  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld,
 }: {
   entry: CarEntry;
   spec: VehicleSpec;
@@ -1177,6 +1210,9 @@ function IntroOverlay({
   room: string;
   netOn: boolean;
   onNet: (v: boolean) => void;
+  worlds: WorldMapSource[];
+  worldName: string;
+  onWorld: (source: WorldMapSource) => void;
 }) {
   return (
     <div className="absolute inset-0 z-[8] flex items-center justify-center bg-gradient-to-b from-carbon/95 via-carbon/85 to-carbon/95 p-4 backdrop-blur-[3px]">
@@ -1190,6 +1226,28 @@ function IntroOverlay({
           suspension load, tyre thermics, weather grip and a city that wakes up at dusk. Pick your
           car, set the sky, share the room code, then hold <span className="text-chalk">W</span>.
         </p>
+
+        <div className="mt-4">
+          <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+            WHERE YOU DRIVE
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {worlds.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => onWorld(w)}
+                className={"cursor-pointer border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors " + (
+                  worldName === w.name
+                    ? "border-signal bg-signal font-semibold text-carbon"
+                    : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                )}
+              >
+                {w.name}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-[1.4fr_1fr]">
           <div>

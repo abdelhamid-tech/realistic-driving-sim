@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 
 /**
  * WORLD MAP IMPORT — the hidden page at /import.
@@ -41,31 +42,64 @@ export const unlock = mutation({
   handler: (_ctx, args) => allowed(args.password),
 });
 
-/** Every imported map, newest first, with a URL the game can fetch. */
+/** One row, shaped for the game and for the owner's page. */
+async function present(ctx: QueryCtx, row: Doc<"worldMaps">) {
+  return {
+    id: row._id,
+    name: row.name,
+    fileName: row.fileName,
+    bytes: row.bytes,
+    kind: row.kind,
+    active: row.active,
+    published: row.published ?? false,
+    fitTo: row.fitTo ?? null,
+    turn: row.turn ?? 0,
+    cell: row.cell ?? null,
+    wallHeight: row.wallHeight ?? null,
+    spawn: row.spawn ?? null,
+    createdAt: row.createdAt,
+    url: await ctx.storage.getUrl(row.storageId),
+  };
+}
+
+/**
+ * What the game may drive: the map the owner is running, plus everything the
+ * owner has published. An unpublished map that is not active stays private.
+ */
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("worldMaps").collect();
     const out = [];
     for (const row of rows) {
-      out.push({
-        id: row._id,
-        name: row.name,
-        fileName: row.fileName,
-        bytes: row.bytes,
-        kind: row.kind,
-        active: row.active,
-        fitTo: row.fitTo ?? null,
-        turn: row.turn ?? 0,
-        cell: row.cell ?? null,
-        wallHeight: row.wallHeight ?? null,
-        spawn: row.spawn ?? null,
-        createdAt: row.createdAt,
-        url: await ctx.storage.getUrl(row.storageId),
-      });
+      if (!row.active && !row.published) continue;
+      out.push(await present(ctx, row));
     }
     out.sort((a, b) => b.createdAt - a.createdAt);
     return out;
+  },
+});
+
+/** The owner's whole shelf, published or not. Empty without the key. */
+export const owned = query({
+  args: { password: v.string() },
+  handler: async (ctx, args) => {
+    if (!allowed(args.password)) return [];
+    const rows = await ctx.db.query("worldMaps").collect();
+    const out = [];
+    for (const row of rows) out.push(await present(ctx, row));
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    return out;
+  },
+});
+
+/** Offer a map to everybody (or take it back). */
+export const setPublished = mutation({
+  args: { password: v.string(), id: v.id("worldMaps"), published: v.boolean() },
+  handler: async (ctx, args) => {
+    gate(args.password);
+    await ctx.db.patch(args.id, { published: args.published });
+    return args.published;
   },
 });
 
@@ -103,6 +137,7 @@ export const register = mutation({
       bytes: args.bytes,
       kind: kindOf(args.fileName),
       active: true,
+      published: false,
       createdAt: Date.now(),
     });
   },
