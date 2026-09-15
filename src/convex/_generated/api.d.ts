@@ -12,7 +12,6 @@ import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as cars from "../cars.js";
-import type * as driverStats from "../driverStats.js";
 import type * as http from "../http.js";
 import type * as maps from "../maps.js";
 import type * as multiplayer from "../multiplayer.js";
@@ -29,7 +28,6 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   "auth/emailOtp": typeof auth_emailOtp;
   cars: typeof cars;
-  driverStats: typeof driverStats;
   http: typeof http;
   maps: typeof maps;
   multiplayer: typeof multiplayer;

@@ -32,21 +32,6 @@ const schema = defineSchema(
       role: v.optional(roleValidator), // role of the user. do not remove
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
-    // one record per driver, holding their personal bests
-    driverRecords: defineTable({
-      userId: v.id("users"),
-      car: v.optional(v.string()),
-      topSpeedKph: v.number(),
-      best0to100: v.optional(v.number()),
-      bestDriftScore: v.number(),
-      distanceKm: v.number(),
-      seconds: v.number(),
-      runs: v.number(),
-      updatedAt: v.number(),
-    })
-      .index("by_user", ["userId"])
-      .index("by_drift", ["bestDriftScore"]),
-
     // one row per driver currently on the road. Rows are written a handful of
     // times a second and deleted when a driver leaves or goes quiet, so this
     // table stays small: it is a live map, not a history.

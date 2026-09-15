@@ -24,6 +24,8 @@ export const publish = mutation({
   args: {
     room: v.string(),
     session: v.string(),
+    /** the pseudonym the driver typed at the door; falls back to the session */
+    name: v.optional(v.string()),
     carId: v.string(),
     carName: v.string(),
     kind: v.string(),
@@ -39,11 +41,12 @@ export const publish = mutation({
     const session = args.session.slice(0, 64);
     const now = Date.now();
 
+    /* there are no accounts: a driver is only ever the name they typed */
     const userId = await getAuthUserId(ctx);
     const user = userId ? await ctx.db.get(userId) : null;
     const name =
-      user?.name ??
-      user?.email?.split("@")[0] ??
+      args.name?.trim().slice(0, 16) ||
+      user?.name ||
       `DRIVER ${session.slice(-4).toUpperCase()}`;
 
     const rows = await ctx.db

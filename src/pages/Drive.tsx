@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 import { toast } from "sonner";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -15,11 +13,12 @@ import {
   isImportedCarId, type CarEntry, type ImportedCar,
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
-import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type RemoteDriver, type Telemetry, type Weather } from "@/game/types";
+import { useDriver } from "@/hooks/use-driver";
+import { CAMERA_LABEL, type GameHandle, type RemoteDriver, type Telemetry } from "@/game/types";
 import {
   PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
-import { ArrowLeft, Check, Cloud, CloudRain, Download, Gauge, Link2, Loader2, Moon, Settings2, Sun, Users, X, Zap } from "lucide-react";
+import { Check, Download, Gauge, Link2, Loader2, Settings2, Users, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
 
@@ -28,17 +27,11 @@ const DEFAULT_ROOM = "apex-city";
 /** How often our position goes out. About eight a second: smooth and cheap. */
 const PUBLISH_MS = 130;
 
-const TIME_PRESETS: { label: string; hour: number; icon: typeof Sun }[] = [
-  { label: "Dawn", hour: 6.4, icon: Sun },
-  { label: "Noon", hour: 12.5, icon: Sun },
-  { label: "Dusk", hour: 18.6, icon: Sun },
-  { label: "Night", hour: 22.5, icon: Moon },
-];
-
-const WEATHER_PRESETS: { key: Weather; icon: typeof Sun }[] = [
-  { key: "clear", icon: Sun },
-  { key: "overcast", icon: Cloud },
-  { key: "rain", icon: CloudRain },
+/** One tap to set the mood. Nothing else about the sky is adjustable. */
+const SKY_PRESETS: { label: string; hour: number }[] = [
+  { label: "DAY", hour: 12.5 },
+  { label: "DUSK", hour: 18.6 },
+  { label: "NIGHT", hour: 22.5 },
 ];
 
 function key(code: string, down: boolean) {
@@ -98,13 +91,12 @@ export default function Drive() {
      car is selected" and "the car is on the road" used to be a toast nobody
      could read while driving */
   const [modelState, setModelState] = useState<ModelState | null>(null);
-  const [paint, setPaint] = useState(PAINT_COLORS[4]);
-  const [weather, setWeather] = useState<Weather>("clear");
+  /* one paint for everybody, one sky at a time: no pickers to fiddle with */
+  const paint = PAINT_COLORS[4];
   const [hour, setHour] = useState(16.2);
   const [camera, setCamera] = useState(0);
   const [volume, setVolume] = useState(0.5);
   const [headlights, setHeadlights] = useState(false);
-  const [quality, setQualityMode] = useState(-1);
 
   const [room, setRoom] = useState(readRoom);
   const [roomDraft, setRoomDraft] = useState(readRoom);
@@ -117,11 +109,9 @@ export default function Drive() {
   const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
   const loadedWorldRef = useRef<string | null>(null);
 
-  const { isAuthenticated } = useAuth();
-  const submitRun = useMutation(api.driverStats.submitRun);
+  const { name: driver, forget: forgetDriver } = useDriver();
   const publish = useMutation(api.multiplayer.publish);
   const leaveRoom = useMutation(api.multiplayer.leave);
-  const myStats = useQuery(api.driverStats.myStats, isAuthenticated ? {} : "skip");
   const peers = useQuery(api.multiplayer.peers, netOn ? { room } : "skip");
   const worldMaps = useQuery(api.maps.list);
   const worldAssets = useQuery(api.assets.list);
@@ -282,17 +272,7 @@ export default function Drive() {
     });
   }, []);
 
-  const choosePaint = useCallback((hex: number) => {
-    setPaint(hex);
-    gameRef.current?.setPaint(hex);
-  }, []);
-
-  const chooseWeather = useCallback((w: Weather) => {
-    setWeather(w);
-    gameRef.current?.setWeather(w);
-  }, []);
-
-  const chooseHour = useCallback((h: number) => {
+  const chooseSky = useCallback((h: number) => {
     setHour(h);
     gameRef.current?.setTimeOfDay(h);
   }, []);
@@ -379,7 +359,7 @@ export default function Drive() {
   /* ------------------------------------------------------------------- net */
   const publishRef = useRef(publish);
   const leaveRef = useRef(leaveRoom);
-  const infoRef = useRef({ carId: entry.id, carName: entry.name, kind: carKind(entry), paint });
+  const infoRef = useRef({ carId: entry.id, carName: entry.name, kind: carKind(entry), paint, name: driver });
   useEffect(() => {
     publishRef.current = publish;
   }, [publish]);
@@ -387,8 +367,8 @@ export default function Drive() {
     leaveRef.current = leaveRoom;
   }, [leaveRoom]);
   useEffect(() => {
-    infoRef.current = { carId: entry.id, carName: entry.name, kind: carKind(entry), paint };
-  }, [entry, paint]);
+    infoRef.current = { carId: entry.id, carName: entry.name, kind: carKind(entry), paint, name: driver };
+  }, [entry, paint, driver]);
 
   /* our own transform, straight out of the physics, about eight times a second */
   useEffect(() => {
@@ -409,6 +389,7 @@ export default function Drive() {
         .current({
           room,
           session,
+          name: info.name,
           carId: info.carId,
           carName: info.carName,
           kind: info.kind,
@@ -496,29 +477,6 @@ export default function Drive() {
       toast.message("Share this link", { description: inviteLink });
     }
   }, [inviteLink]);
-
-  /* --------------------------------------------------------------- saving */
-  const saveRun = useCallback(async () => {
-    const stats = gameRef.current?.sessionStats();
-    if (!stats) return;
-    try {
-      await submitRun({
-        topSpeedKph: Number(stats.topSpeedKph.toFixed(1)),
-        best0to100: stats.best0to100 === null ? undefined : Number(stats.best0to100.toFixed(2)),
-        distanceKm: Number(stats.distanceKm.toFixed(2)),
-        driftPoints: Math.round(stats.driftPoints),
-        car: stats.car,
-        seconds: Math.round(stats.seconds),
-      });
-      toast.success("Run saved to your garage", {
-        description: Math.round(stats.driftPoints) + " drift pts / " + stats.topSpeedKph.toFixed(0) + " km/h top",
-      });
-    } catch (err) {
-      toast.error("Could not save run", {
-        description: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [submitRun]);
 
   useEffect(() => {
     startedRef.current = started;
@@ -627,7 +585,7 @@ export default function Drive() {
         <div className="absolute bottom-4 left-4 border border-white/12 bg-black/60 p-2 backdrop-blur-sm sm:bottom-6 sm:left-6">
           <canvas ref={clusterRef} className="block" width={232} height={132} />
           <div className="px-1 pb-0.5 font-mono text-[8px] tracking-[0.2em] text-muted-foreground">
-            {(tel?.gear ?? "D1") + " / " + WEATHER_LABEL[weather].toUpperCase()}
+            {(tel?.gear ?? "D1") + " / " + (driver || "DRIVER").toUpperCase().slice(0, 14)}
             {headlights ? " / LIGHTS" : ""}
             {tel?.quality ? " / " + tel.quality : ""}
             {netOn ? " / " + (1 + othersOnline) + " ONLINE" : ""}
@@ -708,8 +666,12 @@ export default function Drive() {
           <div className="max-w-md border border-destructive/50 bg-black/60 p-6 text-center">
             <div className="font-display text-xl font-bold tracking-tight">WebGL could not start</div>
             <p className="mt-2 text-sm text-muted-foreground">{bootError}</p>
-            <Button asChild className="mt-4 cursor-pointer" variant="outline">
-              <Link to="/">Back to home</Link>
+            <Button
+              className="mt-4 cursor-pointer"
+              variant="outline"
+              onClick={() => window.location.reload()}
+            >
+              Reload
             </Button>
           </div>
         </div>
@@ -723,13 +685,10 @@ export default function Drive() {
           equipping={equipping}
           onChooseCar={chooseCar}
           onStart={start}
-          paint={paint}
-          onPaint={choosePaint}
-          weather={weather}
-          onWeather={chooseWeather}
-          hour={hour}
-          onHour={chooseHour}
-          isAuthenticated={isAuthenticated}
+          sky={hour}
+          onSky={chooseSky}
+          driver={driver}
+          onForgetDriver={forgetDriver}
           others={othersOnline}
           room={room}
           netOn={netOn}
@@ -754,16 +713,6 @@ export default function Drive() {
             <div className="mt-4 grid gap-2">
               <Button className="cursor-pointer" onClick={togglePause}>Resume driving</Button>
               <Button variant="outline" className="cursor-pointer" onClick={() => setPanel("car")}>Open garage</Button>
-              {isAuthenticated ? (
-                <Button variant="outline" className="cursor-pointer" onClick={saveRun}>Save run to garage</Button>
-              ) : (
-                <Button variant="outline" asChild className="cursor-pointer">
-                  <Link to="/auth?returnTo=%2Fdrive">Sign in to save runs</Link>
-                </Button>
-              )}
-              <Button variant="ghost" asChild className="cursor-pointer">
-                <Link to="/">Leave the city</Link>
-              </Button>
             </div>
           </div>
         </div>
@@ -896,66 +845,6 @@ export default function Drive() {
             ) : null}
           </Group>
 
-          <Group label="Time of day">
-            <div className="grid grid-cols-4 gap-1.5">
-              {TIME_PRESETS.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => chooseHour(p.hour)}
-                  className={"cursor-pointer border px-2 py-2 font-mono text-[10px] tracking-[0.1em] transition-colors " + (
-                    Math.abs(hour - p.hour) < 0.2
-                      ? "border-signal bg-signal/15 text-signal"
-                      : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
-                  )}
-                >
-                  <p.icon className="mx-auto mb-1 size-3.5" />
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 flex items-center gap-3">
-              <span className="font-mono text-[10px] text-muted-foreground">00</span>
-              <Slider
-                value={[hour]}
-                min={0}
-                max={24}
-                step={0.25}
-                onValueChange={(v) => chooseHour(v[0] ?? 12)}
-                className="cursor-pointer"
-              />
-              <span className="w-10 text-right font-mono text-[10px] text-chalk">
-                {hour.toFixed(1).padStart(4, "0")}
-              </span>
-            </div>
-          </Group>
-
-          <Group label="Weather">
-            <div className="grid grid-cols-3 gap-1.5">
-              {WEATHER_PRESETS.map((w) => {
-                const Icon = w.icon;
-                return (
-                  <button
-                    key={w.key}
-                    type="button"
-                    onClick={() => chooseWeather(w.key)}
-                    className={"cursor-pointer border px-2 py-2 font-mono text-[10px] tracking-[0.1em] transition-colors " + (
-                      weather === w.key
-                        ? "border-signal bg-signal/15 text-signal"
-                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
-                    )}
-                  >
-                    <Icon className="mx-auto mb-1 size-3.5" />
-                    {WEATHER_LABEL[w.key].toUpperCase()}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              Rain and overcast skies cut tyre grip and switch the headlights on automatically.
-            </p>
-          </Group>
-
           <Group label="Camera">
             <div className="flex flex-wrap gap-1.5">
               {CAMERA_LABEL.map((c, i) => (
@@ -973,37 +862,6 @@ export default function Drive() {
                 </button>
               ))}
             </div>
-          </Group>
-
-          <Group label="Performance">
-            <div className="flex flex-wrap gap-1.5">
-              {["AUTO", "HIGH", "MEDIUM", "LOW"].map((label, i) => {
-                const value = i - 1;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => {
-                      setQualityMode(value);
-                      gameRef.current?.setQuality(value);
-                    }}
-                    className={"cursor-pointer border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors " + (
-                      quality === value
-                        ? "border-signal bg-signal font-semibold text-carbon"
-                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
-                    )}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-              {tel ? `RUNNING AT ${tel.quality} · ${Math.round(tel.fps)} FPS` : "MEASURING..."}
-              <br />
-              Automatic drops resolution, shadow detail, traffic and tyre smoke when the frame rate
-              sags, and brings them back when it recovers. Pin a tier if you would rather decide.
-            </p>
           </Group>
 
           <Group label="Assists">
@@ -1097,23 +955,6 @@ export default function Drive() {
             </div>
           </Group>
 
-          <Group label="Paint">
-            <div className="flex flex-wrap gap-2">
-              {PAINT_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label="paint"
-                  onClick={() => choosePaint(c)}
-                  className={"size-7 cursor-pointer border transition-transform hover:scale-110 " + (
-                    paint === c ? "border-signal" : "border-white/20"
-                  )}
-                  style={{ backgroundColor: "#" + c.toString(16).padStart(6, "0") }}
-                />
-              ))}
-            </div>
-          </Group>
-
           <Group label="This run">
             <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
               <Stat label="TOP SPEED" value={tel ? tel.topSpeedKph.toFixed(0) + " km/h" : "-"} />
@@ -1121,32 +962,10 @@ export default function Drive() {
               <Stat label="DISTANCE" value={tel ? tel.distanceKm.toFixed(2) + " km" : "-"} />
               <Stat label="DRIFT PTS" value={tel ? Math.round(tel.driftPoints).toLocaleString() : "0"} />
             </div>
-            {isAuthenticated ? (
-              <Button className="mt-3 w-full cursor-pointer" onClick={saveRun}>
-                Save run to garage
-              </Button>
-            ) : (
-              <Button variant="outline" asChild className="mt-3 w-full cursor-pointer">
-                <Link to="/auth?returnTo=%2Fdrive">Sign in to save runs</Link>
-              </Button>
-            )}
-            {myStats ? (
-              <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                GARAGE RECORD / {myStats.topSpeedKph.toFixed(0)} km/h / {Math.round(myStats.bestDriftScore).toLocaleString()} drift pts
-                {myStats.best0to100 ? " / 0-100 " + myStats.best0to100.toFixed(2) + " s" : ""}
-              </p>
-            ) : null}
           </Group>
         </SidePanel>
       )}
 
-      {/* back link */}
-      <Link
-        to="/"
-        className={"absolute left-4 top-4 z-[6] hidden items-center gap-1.5 font-mono text-[10px] tracking-[0.2em] text-muted-foreground transition-opacity hover:text-chalk " + (started ? "" : "pointer-events-none opacity-0")}
-      >
-        <ArrowLeft className="size-3" /> EXIT
-      </Link>
     </div>
   );
 }
@@ -1272,21 +1091,18 @@ function ModelLine({ model, entry, compact }: { model: ModelState | null; entry:
 }
 
 function IntroOverlay({
-  entry, spec, equipping, onChooseCar, onStart, paint, onPaint, weather, onWeather, hour, onHour,
-  isAuthenticated, others, room, netOn, onNet, worlds, worldName, onWorld, garage, model,
+  entry, spec, equipping, onChooseCar, onStart, sky, onSky, driver, onForgetDriver,
+  others, room, netOn, onNet, worlds, worldName, onWorld, garage, model,
 }: {
   entry: CarEntry;
   spec: VehicleSpec;
   equipping: string | null;
   onChooseCar: (id: string) => void;
   onStart: () => void;
-  paint: number;
-  onPaint: (hex: number) => void;
-  weather: Weather;
-  onWeather: (w: Weather) => void;
-  hour: number;
-  onHour: (h: number) => void;
-  isAuthenticated: boolean;
+  sky: number;
+  onSky: (h: number) => void;
+  driver: string;
+  onForgetDriver: () => void;
   others: number;
   room: string;
   netOn: boolean;
@@ -1369,50 +1185,20 @@ function IntroOverlay({
 
           <div className="space-y-4">
             <div>
-              <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">PAINT</div>
-              <div className="flex flex-wrap gap-1.5">
-                {PAINT_COLORS.slice(0, 9).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label="paint"
-                    onClick={() => onPaint(c)}
-                    className={"size-6 cursor-pointer border transition-transform hover:scale-110 " + (
-                      paint === c ? "border-signal" : "border-white/20"
-                    )}
-                    style={{ backgroundColor: "#" + c.toString(16).padStart(6, "0") }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div>
               <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">SKY</div>
-              <div className="grid grid-cols-4 gap-1">
-                {TIME_PRESETS.map((p) => (
+              <div className="grid grid-cols-3 gap-1">
+                {SKY_PRESETS.map((p) => (
                   <button
                     key={p.label}
                     type="button"
-                    onClick={() => onHour(p.hour)}
+                    onClick={() => onSky(p.hour)}
                     className={"cursor-pointer border py-2 font-mono text-[9px] tracking-[0.08em] " + (
-                      Math.abs(hour - p.hour) < 0.2 ? "border-signal text-signal" : "border-white/12 text-muted-foreground"
+                      Math.abs(sky - p.hour) < 0.2
+                        ? "border-signal text-signal"
+                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
                     )}
                   >
-                    {p.label.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-1.5 grid grid-cols-3 gap-1">
-                {WEATHER_PRESETS.map((w) => (
-                  <button
-                    key={w.key}
-                    type="button"
-                    onClick={() => onWeather(w.key)}
-                    className={"cursor-pointer border py-2 font-mono text-[9px] tracking-[0.08em] " + (
-                      weather === w.key ? "border-signal text-signal" : "border-white/12 text-muted-foreground"
-                    )}
-                  >
-                    {WEATHER_LABEL[w.key].toUpperCase()}
+                    {p.label}
                   </button>
                 ))}
               </div>
@@ -1426,7 +1212,18 @@ function IntroOverlay({
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-between gap-3 border border-white/10 bg-white/4 px-3 py-2">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border border-white/10 bg-white/4 px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">DRIVING AS</span>
+            <span className="font-display text-sm font-bold tracking-tight text-chalk">{driver.toUpperCase()}</span>
+            <button
+              type="button"
+              onClick={onForgetDriver}
+              className="cursor-pointer border border-white/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
+            >
+              CHANGE
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <Users className="size-3.5 text-signal" />
             <span className="font-mono text-[10px] tracking-[0.14em] text-chalk">
@@ -1453,15 +1250,9 @@ function IntroOverlay({
             <Badge variant="outline" className="font-mono text-[9px] tracking-[0.16em] text-muted-foreground">
               MULTIPLAYER
             </Badge>
-            {isAuthenticated ? (
-              <Link to="/dashboard" className="font-mono text-[10px] tracking-[0.16em] text-signal hover:underline">
-                MY GARAGE
-              </Link>
-            ) : (
-              <Link to="/auth?returnTo=%2Fdashboard" className="font-mono text-[10px] tracking-[0.16em] text-signal hover:underline">
-                SIGN IN
-              </Link>
-            )}
+            <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
+              ENTER A PSEUDONYM, DRIVE
+            </span>
           </span>
         </div>
       </div>
