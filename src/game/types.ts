@@ -1,4 +1,5 @@
 import type { VehicleKind, VehicleSpec } from "./vehicles";
+import type { WorldMapSource } from "./worldmaps";
 
 export type Weather = "clear" | "overcast" | "rain";
 
@@ -110,6 +111,17 @@ export interface GameHandle {
    * wheels it can find and drives it with the given physics spec.
    */
   loadCar(url: string, label: string, spec: VehicleSpec, yawDeg?: number): Promise<string>;
+  /**
+   * Swaps the built-in city for an imported map: the model is downloaded,
+   * measured and read into a drivable surface. `onProgress` gets 0..1 and a
+   * short note. Resolves with a one-line report.
+   */
+  loadWorldMap(
+    source: WorldMapSource,
+    onProgress?: (progress: number, note: string) => void,
+  ): Promise<string>;
+  /** Back to the built-in procedural city. */
+  unloadWorldMap(): void;
   /** Draws the other drivers in the room; call with a new list whenever it changes. */
   setRemoteDrivers(list: RemoteDriver[]): void;
   /** Our own transform for the network. Null before the first frame. */

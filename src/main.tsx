@@ -16,6 +16,8 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Drive = lazy(() => import("./pages/Drive.tsx"));
+// the owner's door: reachable only by typing /import yourself
+const ImportPage = lazy(() => import("./pages/Import.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -66,6 +68,7 @@ createRoot(document.getElementById("root")!).render(
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/drive" element={<Drive />} />
+              <Route path="/import" element={<ImportPage />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}

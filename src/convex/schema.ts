@@ -67,7 +67,33 @@ const schema = defineSchema(
       updatedAt: v.number(),
     })
       .index("by_room", ["room", "updatedAt"])
-      .index("by_session", ["session"])
+      .index("by_session", ["session"]),
+
+    // World maps dropped in from the hidden import page: one row per model,
+    // plus the tuning the loader reads. `active` marks the one the game
+    // drives on; no active row means the built-in procedural city.
+    worldMaps: defineTable({
+      name: v.string(),
+      fileName: v.string(),
+      storageId: v.id("_storage"),
+      bytes: v.number(),
+      /** "glb" | "zip" | "fbx" — how the loader has to open it */
+      kind: v.string(),
+      active: v.boolean(),
+      /** metres across the longest side; 0 keeps the model's own units */
+      fitTo: v.optional(v.number()),
+      /** degrees to yaw the model so its streets line up with the car */
+      turn: v.optional(v.number()),
+      /** height field cell size in metres */
+      cell: v.optional(v.number()),
+      /** vertical faces taller than this become walls */
+      wallHeight: v.optional(v.number()),
+      /** where the car starts; absent means "find the widest street" */
+      spawn: v.optional(
+        v.object({ x: v.number(), z: v.number(), yaw: v.number() }),
+      ),
+      createdAt: v.number(),
+    }).index("by_active", ["active"]),
   },
   {
     schemaValidation: false,

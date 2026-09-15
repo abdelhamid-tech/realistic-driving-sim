@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";
+import {
+  buildMapField, findSpawn, sampleMap, wallsNear,
+  type MapField, type MapSpawn, type MapWall,
+} from "./mapbuild";
+import { isProcedural, type WorldMapSource } from "./worldmaps";
 import {
   buildFleetTemplate, buildVehicle, cloneFleetVehicle, GROUND_LIFT, PAINT_COLORS,
   randomTrafficKind, VEHICLES,
@@ -149,6 +156,12 @@ export function createGame(opts: GameOptions): GameHandle {
   sun.shadow.normalBias = 0.03;
   scene.add(sun);
   scene.add(sun.target);
+
+  /* Everything the procedural city is made of hangs off here, so importing a
+     world map can switch the whole city off in one line. The grass plain
+     stays: an imported map sits on the same landscape. */
+  const worldRoot = new THREE.Group();
+  scene.add(worldRoot);
 
   let envMap: THREE.Texture | null = null;
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -301,30 +314,34 @@ export function createGame(opts: GameOptions): GameHandle {
   /* The built environment lives in ./city: the grid, blocks, street walls,
      markings, furniture, traffic signals and skyline are all instanced there. */
 
-  let mapField: { x0: number; z0: number; x1: number; z1: number; nx: number; nz: number; h: Float32Array } | null = null;
+  /* The world being driven on. Null means the built-in city; otherwise an
+     imported map whose mesh has been turned into a height field (./mapbuild)
+     is the ground, and the procedural city is switched off. */
+  interface LoadedWorldMap {
+    source: WorldMapSource;
+    root: THREE.Group;
+    field: MapField;
+    spawn: MapSpawn;
+    /** object URLs handed out to the model's textures, freed on unload */
+    blobs: string[];
+  }
+  let worldMap: LoadedWorldMap | null = null;
+  /** the car's own height: it decides which deck of a stacked cell we mean */
+  let mapRefY = 0;
+  const mapWallScratch: MapWall[] = [];
+
   function mapH(x: number, z: number): number | null {
-    if (!mapField) return null;
-    const F = mapField;
-    const fx = (x - F.x0) / (F.x1 - F.x0);
-    const fz = (z - F.z0) / (F.z1 - F.z0);
-    if (fx < 0 || fx >= 1 || fz < 0 || fz >= 1) return null;
-    const gx = fx * (F.nx - 1);
-    const gz = fz * (F.nz - 1);
-    const ix = Math.min(F.nx - 2, gx | 0);
-    const iz = Math.min(F.nz - 2, gz | 0);
-    const tx = gx - ix;
-    const tz = gz - iz;
-    const h00 = F.h[iz * F.nx + ix];
-    const h10 = F.h[iz * F.nx + ix + 1];
-    const h01 = F.h[(iz + 1) * F.nx + ix];
-    const h11 = F.h[(iz + 1) * F.nx + ix + 1];
-    return h00 * (1 - tx) * (1 - tz) + h10 * tx * (1 - tz) + h01 * (1 - tx) * tz + h11 * tx * tz;
+    const F = worldMap?.field;
+    if (!F) return null;
+    return sampleMap(F, x, z, mapRefY);
   }
   function worldH(x: number, z: number) {
     const mh = mapH(x, z);
-    if (mh !== null) {
-      const F = mapField as NonNullable<typeof mapField>;
-      const edge = Math.min(Math.min(x - F.x0, F.x1 - x), Math.min(z - F.z0, F.z1 - z));
+    const F = worldMap?.field;
+    if (mh !== null && F) {
+      const ex = F.x0 + (F.nx - 1) * F.cell;
+      const ez = F.z0 + (F.nz - 1) * F.cell;
+      const edge = Math.min(Math.min(x - F.x0, ex - x), Math.min(z - F.z0, ez - z));
       if (edge >= 20) return mh;
       const base = terrainH(x, z) + cityH(x, z);
       return base + (mh - base) * (edge / 20);
@@ -360,6 +377,9 @@ export function createGame(opts: GameOptions): GameHandle {
   }
   function surfaceAt(x: number, z: number) {
     if (mapH(x, z) !== null) return "TARMAC";
+    /* the built city's surfaces only exist while it is standing: with an
+       imported map loaded, its old street grid is not tarmac any more */
+    if (!cityState.on) return "GRASS";
     if (Math.abs(x) < 104 && Math.abs(z) < 104) return "TARMAC";
     if (onStreet(x, z)) return "TARMAC";
     const b = blockAt(x, z);
@@ -427,7 +447,7 @@ export function createGame(opts: GameOptions): GameHandle {
     m.rotation.x = -Math.PI / 2;
     m.position.set(x, y, z);
     m.receiveShadow = true;
-    scene.add(m);
+    worldRoot.add(m);
     return m;
   }
   flatPlane(206, 206, 0, 0, 0.02, asphaltMat(48, 48));
@@ -467,7 +487,7 @@ export function createGame(opts: GameOptions): GameHandle {
     g.computeVertexNormals();
     const road = new THREE.Mesh(g, asphaltMat(1, 1));
     road.receiveShadow = true;
-    scene.add(road);
+    worldRoot.add(road);
 
     const ribbon = (off: number, wid: number, y: number) => {
       const P: number[] = [];
@@ -492,7 +512,7 @@ export function createGame(opts: GameOptions): GameHandle {
       gg.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
       gg.setIndex(I);
       gg.computeVertexNormals();
-      scene.add(new THREE.Mesh(gg, paintMat));
+      worldRoot.add(new THREE.Mesh(gg, paintMat));
     };
     ribbon(4.55, 0.14, 0.07);
     ribbon(-4.55, 0.14, 0.07);
@@ -514,7 +534,7 @@ export function createGame(opts: GameOptions): GameHandle {
       dash.setMatrixAt(i, M);
     }
     dash.instanceMatrix.needsUpdate = true;
-    scene.add(dash);
+    worldRoot.add(dash);
   }
 
   /* spatial hash so surfaceAt() stays cheap in the physics loop */
@@ -549,7 +569,7 @@ export function createGame(opts: GameOptions): GameHandle {
   const parkSpots = city.parkSpots;
   const parkedCarSpots = city.parkedCarSpots;
   const lampPoints = city.lampPoints;
-  scene.add(cityRoot);
+  worldRoot.add(cityRoot);
 
   {
     const streetMat = asphaltMat(2, 72);
@@ -572,14 +592,14 @@ export function createGame(opts: GameOptions): GameHandle {
     const ring = new THREE.Mesh(new THREE.RingGeometry(29.55, 30.45, 96), paintMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.06;
-    scene.add(ring);
+    worldRoot.add(ring);
     const cross = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 56), paintMat);
     cross.rotation.x = -Math.PI / 2;
     cross.position.y = 0.06;
-    scene.add(cross);
+    worldRoot.add(cross);
     const cross2 = cross.clone();
     cross2.rotation.z = Math.PI / 2;
-    scene.add(cross2);
+    worldRoot.add(cross2);
   }
 
   /* signage */
@@ -670,7 +690,7 @@ export function createGame(opts: GameOptions): GameHandle {
       m.receiveShadow = true;
       m.position.set(r.x, 0, r.z);
       m.rotation.y = r.yaw;
-      scene.add(m);
+      worldRoot.add(m);
     }
   }
 
@@ -767,7 +787,7 @@ export function createGame(opts: GameOptions): GameHandle {
     [trunks, ...lays, blobs].forEach((m) => {
       m.castShadow = true;
       m.receiveShadow = true;
-      scene.add(m);
+      worldRoot.add(m);
     });
   }
 
@@ -784,7 +804,7 @@ export function createGame(opts: GameOptions): GameHandle {
     const add = (x: number, z: number) => {
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
-      scene.add(m);
+      worldRoot.add(m);
       cones.push({
         mesh: m, home: V3(x, groundH(x, z), z), p: V3(x, groundH(x, z), z), v: V3(),
         q: new THREE.Quaternion(), cw: V3(), cool: 0,
@@ -1252,6 +1272,31 @@ export function createGame(opts: GameOptions): GameHandle {
   const eQ = new THREE.Quaternion();
   const YUP = V3(0, 1, 0);
 
+  /**
+   * One contact against a wall: the normal force from the overlap plus the
+   * friction that scrubs speed off sideways. Shared by the city's buildings
+   * and by the walls of an imported map, so a wall behaves the same either way.
+   * Clobbers t2..t5 and eFF, so callers must not hold anything in them.
+   */
+  function wallImpulse(p: THREE.Vector3, nx: number, nz: number, pen: number) {
+    t2.copy(p).sub(car.pos);
+    t3.copy(car.vel).add(t4.crossVectors(car.w, t2));
+    const vn = t3.x * nx + t3.z * nz;
+    let Fn = pen * 250000 + (vn < 0 ? -vn * 9000 : 0);
+    Fn = Math.min(Fn, 300000);
+    eFF.set(nx * Fn, 0, nz * Fn);
+    const tx = t3.x - vn * nx;
+    const tz = t3.z - vn * nz;
+    const vt = Math.hypot(tx, tz);
+    if (vt > 0.01) {
+      const f = -Math.min(Fn * 0.6, vt * 2500);
+      eFF.x += (tx / vt) * f;
+      eFF.z += (tz / vt) * f;
+    }
+    eF.add(eFF);
+    eT.add(t5.crossVectors(t2, eFF));
+  }
+
   interface WheelState {
     comp: number; compV: number; contact: boolean; cp: THREE.Vector3; hard: THREE.Vector3;
     n: THREE.Vector3; wR: THREE.Vector3; Fs: number; Fx: number; Fy: number;
@@ -1655,26 +1700,51 @@ export function createGame(opts: GameOptions): GameHandle {
             const px = bd.hx - Math.abs(dx);
             const pz = bd.hz - Math.abs(dz);
             if (px <= 0 || pz <= 0) continue;
-            t2.copy(t1).sub(this.pos);
-            t3.copy(this.vel).add(t4.crossVectors(this.w, t2));
             let nx = 0;
             let nz = 0;
             if (px < pz) nx = Math.sign(dx) || 1;
             else nz = Math.sign(dz) || 1;
-            const vn = t3.x * nx + t3.z * nz;
-            let Fn = Math.min(px, pz) * 250000 + (vn < 0 ? -vn * 9000 : 0);
-            Fn = Math.min(Fn, 300000);
-            eFF.set(nx * Fn, 0, nz * Fn);
-            const tx = t3.x - vn * nx;
-            const tz = t3.z - vn * nz;
-            const vt = Math.hypot(tx, tz);
-            if (vt > 0.01) {
-              const f = -Math.min(Fn * 0.6, vt * 2500);
-              eFF.x += (tx / vt) * f;
-              eFF.z += (tz / vt) * f;
+            wallImpulse(t1, nx, nz, Math.min(px, pz));
+          }
+        }
+      }
+
+      /* walls of an imported map — thin boxes lying on its own geometry */
+      const mapFieldNow = worldMap?.field;
+      if (mapFieldNow) {
+        const boxes = wallsNear(mapFieldNow, this.pos.x, this.pos.z, mapWallScratch);
+        if (boxes.length) {
+          for (const p of BODYPTS) {
+            t1.copy(p).applyQuaternion(q).add(this.pos);
+            let bestPen = 0;
+            let bnx = 0;
+            let bnz = 0;
+            for (const b of boxes) {
+              if (t1.y > b.top) continue;
+              const rx = t1.x - b.x;
+              const rz = t1.z - b.z;
+              const lx = rx * b.ux + rz * b.uz;
+              const lz = -rx * b.uz + rz * b.ux;
+              const dx = b.hx - Math.abs(lx);
+              const dz = b.hz - Math.abs(lz);
+              if (dx <= 0 || dz <= 0) continue;
+              /* a wall quad arrives as two coplanar boxes: let the deepest
+                 one win, so one face never pushes the car twice as hard */
+              if (dx < dz) {
+                if (dx > bestPen) {
+                  const s = Math.sign(lx) || 1;
+                  bestPen = dx;
+                  bnx = b.ux * s;
+                  bnz = b.uz * s;
+                }
+              } else if (dz > bestPen) {
+                const s = Math.sign(lz) || 1;
+                bestPen = dz;
+                bnx = -b.uz * s;
+                bnz = b.ux * s;
+              }
             }
-            eF.add(eFF);
-            eT.add(t5.crossVectors(t2, eFF));
+            if (bestPen > 0) wallImpulse(t1, bnx, bnz, bestPen);
           }
         }
       }
@@ -2063,7 +2133,9 @@ export function createGame(opts: GameOptions): GameHandle {
   }
 
   function updateLampLights() {
-    const strength = envState.night * 90;
+    /* the street lamps belong to the procedural city: an imported map has no
+       lamp list, so they go dark instead of glowing in mid-air */
+    const strength = cityState.on ? envState.night * 90 : 0;
     if (strength < 1) {
       for (const l of lampLights) l.visible = false;
       return;
@@ -3168,6 +3240,7 @@ export function createGame(opts: GameOptions): GameHandle {
     if (dt > 0) avgFps += (1 / dt - avgFps) * 0.02;
     uTime.value = now * 0.001;
     framePrevVel.copy(car.vel);
+    if (worldMap) mapRefY = car.pos.y;
 
     if (!paused) {
       city.update(dt, envState.night, envState.wet);
@@ -3220,6 +3293,279 @@ export function createGame(opts: GameOptions): GameHandle {
     renderer.render(scene, camera);
   }
 
+  /* =====================================================================
+   *  IMPORTED WORLD MAPS
+   *
+   *  A city model is downloaded, opened (GLB, FBX, or a .zip holding either
+   *  one plus its texture folder), measured, stretched to a sane size, laid
+   *  on the ground, and then read exactly once into a drivable height field
+   *  (./mapbuild). From then on the physics samples that field: it never has
+   *  to touch the model's millions of triangles at 240 Hz.
+   * ===================================================================*/
+  const MAP_CELL = 4;
+  const MAP_WALL_H = 2.2;
+  /** past this many triangles the model stops casting shadows (it is huge) */
+  const MAP_SHADOW_TRI_LIMIT = 900000;
+
+  function bufferOf(bytes: Uint8Array) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  /** Every triangle of a loaded model, in world space, as a flat array. */
+  function collectTriangles(root: THREE.Object3D) {
+    root.updateMatrixWorld(true);
+    let count = 0;
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.geometry) return;
+      const pos = m.geometry.getAttribute("position");
+      if (!pos) return;
+      const index = m.geometry.getIndex();
+      count += Math.floor((index ? index.count : pos.count) / 3);
+    });
+    const out = new Float32Array(count * 9);
+    const v = new THREE.Vector3();
+    let w = 0;
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.geometry) return;
+      const pos = m.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+      if (!pos) return;
+      const index = m.geometry.getIndex();
+      const n = index ? index.count : pos.count;
+      for (let i = 0; i + 2 < n; i += 3) {
+        for (let k = 0; k < 3; k++) {
+          const vi = index ? index.getX(i + k) : i + k;
+          v.fromBufferAttribute(pos, vi).applyMatrix4(m.matrixWorld);
+          out[w++] = v.x;
+          out[w++] = v.y;
+          out[w++] = v.z;
+        }
+      }
+    });
+    return out;
+  }
+
+  /** A GLB of a city is a lot of geometry: shadows are the first thing to go. */
+  function dressMapModel(root: THREE.Object3D, heavy: boolean) {
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.receiveShadow = true;
+      m.castShadow = !heavy;
+      const list = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of list) {
+        const std = mat as THREE.MeshStandardMaterial;
+        if (std && (std as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) {
+          std.envMapIntensity = 0.35;
+        }
+      }
+    });
+  }
+
+  /** Download with a progress figure, streamed a chunk at a time. */
+  async function fetchWithProgress(url: string, onProgress?: (p: number, note: string) => void) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`the map came back with ${res.status}`);
+    if (!res.body) return new Uint8Array(await res.arrayBuffer());
+    const total = Number(res.headers.get("content-length") ?? 0);
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      got += value.length;
+      if (total) {
+        const pct = Math.min(0.7, (got / total) * 0.7);
+        onProgress?.(pct, `downloading ${(got / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`);
+      }
+    }
+    const all = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) {
+      all.set(c, off);
+      off += c.length;
+    }
+    return all;
+  }
+
+  function gltfWith(manager?: THREE.LoadingManager) {
+    const draco = new DRACOLoader();
+    draco.setDecoderPath(new URL("draco/gltf/", document.baseURI).href);
+    const loader = manager ? new GLTFLoader(manager) : new GLTFLoader();
+    loader.setDRACOLoader(draco);
+    return loader;
+  }
+
+  /**
+   * Get an Object3D out of whatever the owner uploaded. A zip is unpacked in
+   * the browser and its files are handed to the loader through a URL modifier,
+   * which is what lets an FBX or glTF find its textures by name no matter how
+   * the folders were arranged inside the archive.
+   */
+  async function openMapFile(source: WorldMapSource, onProgress?: (p: number, note: string) => void) {
+    const blobs: string[] = [];
+
+    if (source.kind === "zip") {
+      const bytes = await fetchWithProgress(source.url, onProgress);
+      onProgress?.(0.72, "unpacking the archive");
+      const entries = unzipSync(bytes);
+      const files = new Map<string, Uint8Array>();
+      const paths = Object.keys(entries);
+      for (const path of paths) {
+        if (path.endsWith("/") || !entries[path] || entries[path].length === 0) continue;
+        const base = (path.split("/").pop() ?? "").toLowerCase();
+        if (base && !files.has(base)) files.set(base, entries[path]);
+      }
+      const manager = new THREE.LoadingManager();
+      manager.setURLModifier((url) => {
+        const base = decodeURIComponent((url.split("?")[0].split("/").pop() ?? "")).toLowerCase();
+        const hit = files.get(base);
+        if (!hit) return url;
+        const blob = URL.createObjectURL(new Blob([bufferOf(hit)]));
+        blobs.push(blob);
+        return blob;
+      });
+      const find = (ext: string) => paths.find((n) => n.toLowerCase().endsWith(ext) && entries[n]?.length);
+      const glb = find(".glb");
+      if (glb) {
+        const gltf = await gltfWith(manager).parseAsync(bufferOf(entries[glb]), "");
+        return { object: gltf.scene as THREE.Object3D, blobs };
+      }
+      const fbx = find(".fbx");
+      if (fbx) {
+        const obj = new FBXLoader(manager).parse(bufferOf(entries[fbx]), "");
+        return { object: obj as THREE.Object3D, blobs };
+      }
+      const gltfFile = find(".gltf");
+      if (gltfFile) {
+        const json = new TextDecoder().decode(entries[gltfFile]);
+        const gltf = await gltfWith(manager).parseAsync(json, "");
+        return { object: gltf.scene as THREE.Object3D, blobs };
+      }
+      throw new Error("no .glb, .fbx or .gltf inside that archive");
+    }
+
+    if (source.kind === "fbx") {
+      const obj = await new FBXLoader().loadAsync(source.url, (e) => {
+        if (e.total) onProgress?.(0.1 + 0.6 * (e.loaded / e.total), "downloading");
+      });
+      return { object: obj as THREE.Object3D, blobs };
+    }
+
+    const gltf = await gltfWith().loadAsync(source.url, (e) => {
+      if (e.total) onProgress?.(0.1 + 0.6 * (e.loaded / e.total), "downloading");
+    });
+    return { object: gltf.scene as THREE.Object3D, blobs };
+  }
+
+  function freeWorldMap() {
+    const w = worldMap;
+    worldMap = null;
+    if (!w) return;
+    scene.remove(w.root);
+    disposeModel(w.root);
+    for (const url of w.blobs) URL.revokeObjectURL(url);
+  }
+
+  function showProceduralWorld() {
+    worldRoot.visible = true;
+    cityState.on = true;
+    mapRefY = 0;
+    cityCarsDone = false;
+    populateCityCars();
+  }
+
+  /** Put the car down at the map's start line (or the city's). */
+  function respawn() {
+    const sp = worldMap?.spawn;
+    mapRefY = REST_HEIGHT + 0.4;
+    if (sp) {
+      car.pos.set(sp.x, mapRefY, sp.z);
+      car.quat.setFromAxisAngle(YUP, sp.yaw);
+    } else {
+      car.pos.set(0, REST_HEIGHT, -12);
+      car.quat.setFromAxisAngle(YUP, 0);
+    }
+    car.vel.set(0, 0, 0);
+    car.w.set(0, 0, 0);
+    car.reset();
+    mapRefY = car.pos.y;
+    /* put the camera where it belongs instead of flying it across the map */
+    const f = V3(0, 0, 1).applyQuaternion(car.quat);
+    camPos.set(car.pos.x - f.x * 7.5, car.pos.y + 3.2, car.pos.z - f.z * 7.5);
+    const g = groundH(camPos.x, camPos.z) + 0.6;
+    if (camPos.y < g) camPos.y = g;
+    camLook.copy(car.pos);
+  }
+
+  /** Drop an imported map in place of the built city. */
+  async function loadWorldMap(
+    source: WorldMapSource,
+    onProgress?: (p: number, note: string) => void,
+  ): Promise<string> {
+    if (isProcedural(source)) {
+      unloadWorldMap();
+      return "APEX CITY · the built-in city";
+    }
+    freeWorldMap();
+    const started = performance.now();
+    onProgress?.(0.02, "opening");
+    const opened = await openMapFile(source, onProgress);
+    const object = opened.object;
+    if (!object) throw new Error("that file has no scene in it");
+
+    onProgress?.(0.78, "measuring");
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const span = Math.max(size.x, size.z) || 1;
+    const scale = source.fitTo > 0 ? source.fitTo / span : 1;
+    const root = new THREE.Group();
+    root.add(object);
+    object.scale.setScalar(scale);
+    object.rotation.y = THREE.MathUtils.degToRad(source.turn || 0);
+    root.updateMatrixWorld(true);
+    /* centre it on the origin and sit it on the ground */
+    const placed = new THREE.Box3().setFromObject(root);
+    const centre = placed.getCenter(new THREE.Vector3());
+    root.position.set(-centre.x, -placed.min.y, -centre.z);
+    root.updateMatrixWorld(true);
+
+    /* the built city stands down while an imported one is on the road */
+    scene.add(root);
+    worldRoot.visible = false;
+    cityState.on = false;
+    for (const t of traffic) scene.remove(t.grp);
+    traffic.length = 0;
+    cityCarsDone = false;
+
+    onProgress?.(0.86, "reading the streets");
+    const tris = collectTriangles(root);
+    const field = buildMapField(tris, {
+      cell: source.cell > 0 ? source.cell : MAP_CELL,
+      wallHeight: source.wallHeight > 0 ? source.wallHeight : MAP_WALL_H,
+    });
+    const spawn = source.spawn ?? findSpawn(field);
+    worldMap = { source, root, field, spawn, blobs: opened.blobs };
+    dressMapModel(root, field.stats.triangles > MAP_SHADOW_TRI_LIMIT);
+    respawn();
+    onProgress?.(1, "ready");
+
+    const st = field.stats;
+    return `${source.name} · ${st.sizeX.toFixed(0)} × ${st.sizeZ.toFixed(0)} m of streets · ` +
+      `${st.walls} walls · built in ${Math.round(performance.now() - started)} ms`;
+  }
+
+  /** Go back to the built-in city. */
+  function unloadWorldMap() {
+    freeWorldMap();
+    showProceduralWorld();
+    respawn();
+  }
+
   /* ------------------------------------------------------------- bootstrap */
   applyCarSpec(spec.kind);
   mountPlayer(spec.kind);
@@ -3268,10 +3614,12 @@ export function createGame(opts: GameOptions): GameHandle {
     },
     setPaused,
     reset() {
-      car.reset();
+      respawn();
       resetCones();
     },
     loadCar,
+    loadWorldMap,
+    unloadWorldMap,
     setRemoteDrivers,
     netSnapshot,
     setVolume(v: number) {

@@ -1,0 +1,458 @@
+import { useCallback, useRef, useState } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
+import { formatBytes, mapFromRow, type WorldMapRow } from "@/game/worldmaps";
+import {
+  ArrowLeft, Check, KeyRound, Loader2, Play, Trash2, TriangleAlert, UploadCloud,
+} from "lucide-react";
+
+/**
+ * WORLD IMPORT — the owner's door.
+ *
+ * Not linked from anywhere: you come here by typing /import yourself. Nothing
+ * on this page works without the key, and the key is checked on the server
+ * (see convex/maps.ts), so it is never shipped inside the bundle.
+ */
+
+const KEY_STORE = "world-import-key";
+
+const TURNS = [0, 90, 180, 270];
+
+export default function Import() {
+  const rows = useQuery(api.maps.list);
+  const unlock = useMutation(api.maps.unlock);
+  const uploadUrl = useMutation(api.maps.uploadUrl);
+  const register = useMutation(api.maps.register);
+  const setActive = useMutation(api.maps.setActive);
+  const tune = useMutation(api.maps.tune);
+  const removeMap = useMutation(api.maps.remove);
+
+  const [key, setKey] = useState(() => window.sessionStorage.getItem(KEY_STORE) ?? "");
+  const [unlocked, setUnlocked] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const tryUnlock = useCallback(
+    async (value: string) => {
+      const cleaned = value.trim();
+      if (!cleaned) return;
+      setChecking(true);
+      setError(null);
+      try {
+        const ok = await unlock({ password: cleaned });
+        if (ok) {
+          window.sessionStorage.setItem(KEY_STORE, cleaned);
+          setKey(cleaned);
+          setUnlocked(true);
+        } else {
+          setError("That is not the key.");
+        }
+      } catch {
+        setError("The key could not be checked. Try again.");
+      } finally {
+        setChecking(false);
+      }
+    },
+    [unlock],
+  );
+
+  /* every mutation needs the key, and a stale one should drop us back to the
+     gate instead of throwing on every click */
+  const guarded = useCallback(
+    async <T,>(run: () => Promise<T>, what: string): Promise<T | null> => {
+      try {
+        return await run();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/wrong key/i.test(message)) {
+          setUnlocked(false);
+          window.sessionStorage.removeItem(KEY_STORE);
+          setError("The key stopped working. Unlock again.");
+        } else {
+          toast.error(what + " failed", { description: message });
+        }
+        return null;
+      }
+    },
+    [],
+  );
+
+  const send = useCallback(
+    async (file: File) => {
+      const label = file.name.toLowerCase();
+      if (!/\.(glb|gltf|zip|fbx)$/.test(label)) {
+        toast.error("That file cannot be a map", {
+          description: "Use .glb, .zip (holding a .glb or .fbx plus its textures) or .fbx.",
+        });
+        return;
+      }
+      setBusy(file.name);
+      setProgress(0);
+      try {
+        const url = await guarded(() => uploadUrl({ password: key }), "Upload");
+        if (!url) return;
+        /* XHR rather than fetch: it reports upload progress, and a city model
+           can be a hundred megabytes */
+        const storageId = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", url);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) setProgress(e.loaded / e.total);
+          };
+          xhr.onload = () => {
+            try {
+              const body = JSON.parse(xhr.responseText) as { storageId?: string };
+              if (!body.storageId) throw new Error("no storage id came back");
+              resolve(body.storageId);
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)));
+            }
+          };
+          xhr.onerror = () => reject(new Error("the upload was cut off"));
+          xhr.send(file);
+        });
+        const ok = await guarded(
+          () =>
+            register({
+              password: key,
+              storageId: storageId as never,
+              name: name.trim() || file.name.replace(/\.[^.]+$/, ""),
+              fileName: file.name,
+              bytes: file.size,
+            }),
+          "Saving the map",
+        );
+        if (ok) {
+          setName("");
+          toast.success("Map stored", {
+            description: file.name + " is now the active world. Open the game to drive it.",
+          });
+        }
+      } catch (err) {
+        toast.error("Upload failed", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setBusy(null);
+        setProgress(0);
+        if (inputRef.current) inputRef.current.value = "";
+      }
+    },
+    [guarded, key, name, register, uploadUrl],
+  );
+
+  /* -------------------------------------------------------------------- gate */
+  if (!unlocked) {
+    return (
+      <div className="min-h-screen bg-carbon px-6 py-16 text-chalk">
+        <div className="mx-auto max-w-md">
+          <div className="font-mono text-[10px] tracking-[0.32em] text-signal">OPEN CITY DRIVING</div>
+          <h1 className="mt-2 font-display text-3xl font-bold tracking-tight">WORLD IMPORT</h1>
+          <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            This page is the owner's entrance. Type the key to continue.
+          </p>
+
+          <form
+            className="mt-6 border border-white/12 bg-white/4 p-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void tryUnlock(key);
+            }}
+          >
+            <label className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">KEY</label>
+            <div className="mt-2 flex gap-2">
+              <input
+                autoFocus
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                spellCheck={false}
+                placeholder="••••••••"
+                className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-sm tracking-[0.2em] text-chalk outline-none placeholder:text-muted-foreground/50 focus:border-signal/60"
+              />
+              <Button type="submit" disabled={checking} className="cursor-pointer">
+                {checking ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+                UNLOCK
+              </Button>
+            </div>
+            {error ? (
+              <p className="mt-3 flex items-center gap-1.5 font-mono text-[10px] text-destructive">
+                <TriangleAlert className="size-3" /> {error}
+              </p>
+            ) : null}
+          </form>
+
+          <Link
+            to="/"
+            className="mt-6 inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground hover:text-chalk"
+          >
+            <ArrowLeft className="size-3" /> BACK
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  /* ------------------------------------------------------------------ unlocked */
+  const list = (rows ?? []) as unknown as WorldMapRow[];
+
+  return (
+    <div className="min-h-screen bg-carbon px-6 py-12 text-chalk">
+      <div className="mx-auto max-w-3xl">
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] tracking-[0.32em] text-signal">OWNER · UNLOCKED</div>
+            <h1 className="mt-1 font-display text-3xl font-bold tracking-tight">WORLD IMPORT</h1>
+          </div>
+          <Button variant="outline" asChild className="cursor-pointer">
+            <Link to="/drive">
+              <Play className="size-3.5" /> DRIVE
+            </Link>
+          </Button>
+        </div>
+
+        {/* ------------------------------------------------------------ upload */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) void send(file);
+          }}
+          className={
+            "mt-6 border border-dashed p-6 text-center transition-colors " +
+            (dragging ? "border-signal bg-signal/10" : "border-white/20 bg-white/4")
+          }
+        >
+          <UploadCloud className="mx-auto size-6 text-signal" />
+          <p className="mt-3 font-mono text-[11px] tracking-[0.14em] text-chalk">
+            DROP THE CITY MODEL HERE
+          </p>
+          <p className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground">
+            .glb on its own · .zip holding a .glb or .fbx with its textures · .fbx with textures inside
+            <br />
+            No size limit. The file is stored on the server and becomes the world the game drives on.
+          </p>
+
+          <div className="mx-auto mt-4 flex max-w-sm gap-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              spellCheck={false}
+              placeholder="name for the map (optional)"
+              className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-[11px] tracking-[0.1em] text-chalk outline-none placeholder:text-muted-foreground/60 focus:border-signal/60"
+            />
+            <Button
+              variant="outline"
+              className="cursor-pointer font-mono text-[10px]"
+              onClick={() => inputRef.current?.click()}
+            >
+              CHOOSE FILE
+            </Button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".glb,.gltf,.zip,.fbx"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void send(file);
+              }}
+            />
+          </div>
+
+          {busy ? (
+            <div className="mx-auto mt-5 max-w-sm text-left">
+              <div className="flex items-baseline justify-between font-mono text-[10px] text-muted-foreground">
+                <span className="truncate">{busy}</span>
+                <span>{Math.round(progress * 100)}%</span>
+              </div>
+              <div className="mt-1 h-1.5 w-full bg-white/10">
+                <div className="h-full bg-signal transition-[width]" style={{ width: `${progress * 100}%` }} />
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* -------------------------------------------------------------- maps */}
+        <div className="mt-8 border-t border-white/10 pt-4">
+          <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+            STORED WORLDS / {list.length}
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {list.length === 0 ? (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                Nothing imported yet. The game is driving APEX CITY, the built-in procedural city.
+              </p>
+            ) : null}
+
+            {list.map((row) => {
+              const usable = mapFromRow(row);
+              return (
+                <div
+                  key={row.id}
+                  className={
+                    "border p-3 " + (row.active ? "border-signal bg-signal/10" : "border-white/12 bg-white/4")
+                  }
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-display text-sm font-bold tracking-tight">{row.name}</span>
+                    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+                      {row.active ? (
+                        <>
+                          <Check className="size-3 text-signal" /> ACTIVE
+                        </>
+                      ) : null}
+                      {row.kind.toUpperCase()} · {formatBytes(row.bytes)}
+                    </span>
+                  </div>
+                  <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                    {row.fileName}
+                    {usable && usable.fitTo > 0 ? ` · fitted to ${usable.fitTo} m across` : " · true scale"}
+                    {row.spawn ? " · saved start line" : " · start line found automatically"}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {row.active ? null : (
+                      <Button
+                        size="sm"
+                        className="cursor-pointer font-mono text-[10px]"
+                        onClick={() =>
+                          void guarded(() => setActive({ password: key, id: row.id as never }), "Activating")
+                        }
+                      >
+                        MAKE IT THE WORLD
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="cursor-pointer font-mono text-[10px]"
+                      onClick={() =>
+                        void guarded(
+                          () => tune({ password: key, id: row.id as never, fitTo: 0 }),
+                          "Saving",
+                        )
+                      }
+                      title="Keep the model's own units instead of fitting it to 1200 m"
+                    >
+                      TRUE SCALE
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="cursor-pointer font-mono text-[10px] text-destructive"
+                      onClick={() =>
+                        void guarded(() => removeMap({ password: key, id: row.id as never }), "Deleting")
+                      }
+                    >
+                      <Trash2 className="size-3" /> DELETE
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/8 pt-3">
+                    <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                      FIT TO (M)
+                      <input
+                        type="number"
+                        min={0}
+                        max={20000}
+                        defaultValue={row.fitTo ?? 1200}
+                        onBlur={(e) => {
+                          const v = Math.max(0, Math.min(20000, Number(e.target.value) || 0));
+                          void guarded(() => tune({ password: key, id: row.id as never, fitTo: v }), "Saving");
+                        }}
+                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                      />
+                    </label>
+                    <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                      CELL (M)
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        step={0.5}
+                        defaultValue={row.cell ?? 4}
+                        onBlur={(e) => {
+                          const v = Math.max(1, Math.min(20, Number(e.target.value) || 4));
+                          void guarded(() => tune({ password: key, id: row.id as never, cell: v }), "Saving");
+                        }}
+                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                      />
+                    </label>
+                    <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                      WALLS TALLER THAN (M)
+                      <input
+                        type="number"
+                        min={0.5}
+                        max={20}
+                        step={0.5}
+                        defaultValue={row.wallHeight ?? 2.2}
+                        onBlur={(e) => {
+                          const v = Math.max(0.5, Math.min(20, Number(e.target.value) || 2.2));
+                          void guarded(() => tune({ password: key, id: row.id as never, wallHeight: v }), "Saving");
+                        }}
+                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                      />
+                    </label>
+                    <div className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                      ROTATION
+                      <div className="mt-1 flex gap-1">
+                        {TURNS.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() =>
+                              void guarded(() => tune({ password: key, id: row.id as never, turn: t }), "Saving")
+                            }
+                            className={
+                              "flex-1 cursor-pointer border py-1 font-mono text-[10px] transition-colors " +
+                              ((row.turn ?? 0) === t
+                                ? "border-signal bg-signal text-carbon"
+                                : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                            }
+                          >
+                            {t}°
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="mt-4 font-mono text-[10px] leading-relaxed text-muted-foreground">
+            Changing any setting reloads the world the next time you open the game. The defaults are
+            usually right: the model is fitted to 1200 m across, thin vertical faces become walls, and
+            the start line is put on the widest street. If the streets run the wrong way, rotate 90°.
+          </p>
+        </div>
+
+        <Link
+          to="/"
+          className="mt-8 inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em] text-muted-foreground hover:text-chalk"
+        >
+          <ArrowLeft className="size-3" /> BACK TO THE CITY
+        </Link>
+      </div>
+    </div>
+  );
+}

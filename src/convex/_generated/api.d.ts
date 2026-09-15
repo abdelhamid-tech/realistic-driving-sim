@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as driverStats from "../driverStats.js";
 import type * as http from "../http.js";
+import type * as maps from "../maps.js";
 import type * as multiplayer from "../multiplayer.js";
 import type * as users from "../users.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   "auth/emailOtp": typeof auth_emailOtp;
   driverStats: typeof driverStats;
   http: typeof http;
+  maps: typeof maps;
   multiplayer: typeof multiplayer;
   users: typeof users;
 }>;

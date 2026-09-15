@@ -15,6 +15,7 @@ import {
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
 import { CAMERA_LABEL, WEATHER_LABEL, type GameHandle, type RemoteDriver, type Telemetry, type Weather } from "@/game/types";
+import { PROCEDURAL_MAP, mapFromRow, type WorldMapRow, type WorldMapSource } from "@/game/worldmaps";
 import { ArrowLeft, Check, Cloud, CloudRain, Download, Gauge, Link2, Loader2, Moon, Settings2, Sun, Users, X, Zap } from "lucide-react";
 
 const MODES = ["NORMAL", "DRIFT", "RALLY", "ARCADE"];
@@ -103,6 +104,11 @@ export default function Drive() {
   const [netState, setNetState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const [session] = useState(makeSession);
 
+  /* the world we are driving on: the built city, or an imported map */
+  const [worldName, setWorldName] = useState(PROCEDURAL_MAP.name);
+  const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
+  const loadedWorldRef = useRef<string | null>(null);
+
   const entry = useMemo(() => carById(carId), [carId]);
   const spec: VehicleSpec = useMemo(() => carSpec(entry), [entry]);
 
@@ -112,6 +118,7 @@ export default function Drive() {
   const leaveRoom = useMutation(api.multiplayer.leave);
   const myStats = useQuery(api.driverStats.myStats, isAuthenticated ? {} : "skip");
   const peers = useQuery(api.multiplayer.peers, netOn ? { room } : "skip");
+  const worldMaps = useQuery(api.maps.list);
 
   const notify = useCallback((message: string) => {
     setNotice(message);
@@ -150,6 +157,7 @@ export default function Drive() {
       handle?.destroy();
       gameRef.current = null;
       loadedCarRef.current = null;
+      loadedWorldRef.current = null;
       canvas.remove();
     };
   }, [notify]);
@@ -253,6 +261,69 @@ export default function Drive() {
     setCamera(c);
     gameRef.current?.setCamera(c);
   }, []);
+
+  /* ------------------------------------------------------------- the world
+   *  If an imported map is marked active it takes the place of the built city.
+   *  The model is fetched, measured and read into the drivable surface once
+   *  per visit, and the settings panel can switch worlds by hand. */
+  const worldRows = useMemo(() => ((worldMaps ?? []) as unknown as WorldMapRow[]), [worldMaps]);
+  const activeMap = useMemo(() => {
+    const row = worldRows.find((m) => m.active);
+    return row ? mapFromRow(row) : null;
+  }, [worldRows]);
+
+  const chooseWorld = useCallback((source: WorldMapSource) => {
+    const game = gameRef.current;
+    if (!game) return;
+    loadedWorldRef.current = source.id;
+    setWorldName(source.name);
+    setWorldLoad({ p: 0.01, note: "opening" });
+    game
+      .loadWorldMap(source, (p, note) => setWorldLoad({ p, note }))
+      .then((report) => toast.success(source.name + " is live", { description: report }))
+      .catch((err) => {
+        loadedWorldRef.current = null;
+        toast.error("That world did not load", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => setWorldLoad(null));
+  }, []);
+
+  useEffect(() => {
+    if (!booted || worldMaps === undefined) return;
+    const game = gameRef.current;
+    if (!game) return;
+    const wanted = activeMap?.id ?? PROCEDURAL_MAP.id;
+    if (loadedWorldRef.current === wanted) return;
+    loadedWorldRef.current = wanted;
+    if (!activeMap) {
+      setWorldName(PROCEDURAL_MAP.name);
+      return;
+    }
+    let live = true;
+    setWorldName(activeMap.name);
+    setWorldLoad({ p: 0.01, note: "opening" });
+    game
+      .loadWorldMap(activeMap, (p, note) => {
+        if (live) setWorldLoad({ p, note });
+      })
+      .then((report) => {
+        if (live) toast.success(activeMap.name + " is live", { description: report });
+      })
+      .catch((err) => {
+        if (live) loadedWorldRef.current = null;
+        toast.error("The active map did not load", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        if (live) setWorldLoad(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [booted, activeMap, worldMaps]);
 
   /* ------------------------------------------------------------------- net */
   const publishRef = useRef(publish);
@@ -565,6 +636,17 @@ export default function Drive() {
         </div>
       )}
 
+      {worldLoad && started ? (
+        <div className="pointer-events-none absolute inset-x-0 top-16 z-[7] flex justify-center">
+          <div className="border border-white/12 bg-black/75 px-4 py-2 text-center backdrop-blur-sm">
+            <div className="font-mono text-[10px] tracking-[0.24em] text-signal">
+              BUILDING {worldName.toUpperCase()} · {Math.round(worldLoad.p * 100)}%
+            </div>
+            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{worldLoad.note}</div>
+          </div>
+        </div>
+      ) : null}
+
       {bootError && (
         <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon/95 p-6">
           <div className="max-w-md border border-destructive/50 bg-black/60 p-6 text-center">
@@ -706,6 +788,68 @@ export default function Drive() {
               Everyone who opens the invite link lands in the same room. Positions are relayed
               about eight times a second and drop out on their own when a driver goes quiet.
             </p>
+          </Group>
+
+          <Group label="Monde / world">
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => chooseWorld(PROCEDURAL_MAP)}
+                className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
+                  worldName === PROCEDURAL_MAP.name
+                    ? "border-signal bg-signal/10"
+                    : "border-white/12 hover:border-signal/50"
+                )}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-display text-sm font-bold tracking-tight">APEX CITY</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {worldName === PROCEDURAL_MAP.name ? "DRIVING" : "BUILT-IN"}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  The procedural city: streets both ways, 1,900 buildings, live traffic.
+                </div>
+              </button>
+
+              {worldRows.map((row) => {
+                const source = mapFromRow(row);
+                if (!source) return null;
+                const driving = worldName === source.name;
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => chooseWorld(source)}
+                    className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
+                      driving ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                    )}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-display text-sm font-bold tracking-tight">{source.name}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {driving ? "DRIVING" : row.kind.toUpperCase() + " · " + formatBytes(row.bytes)}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate font-mono text-[10px] leading-relaxed text-muted-foreground">
+                      {source.credit} · {source.fitTo > 0 ? source.fitTo + " m across" : "true scale"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {worldLoad ? (
+              <div className="mt-3">
+                <div className="flex items-baseline justify-between font-mono text-[10px] text-muted-foreground">
+                  <span>{worldLoad.note}</span>
+                  <span>{Math.round(worldLoad.p * 100)}%</span>
+                </div>
+                <div className="mt-1 h-1.5 w-full bg-white/10">
+                  <div className="h-full bg-signal transition-[width]" style={{ width: `${worldLoad.p * 100}%` }} />
+                </div>
+              </div>
+            ) : null}
           </Group>
 
           <Group label="Time of day">
