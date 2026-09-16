@@ -32,7 +32,17 @@
        non-commercial use — buy the Zetafonts licence, or drop this link and
        Outfit takes over, before the game earns anything. -->
   <link rel="preconnect" href="https://fonts.cdnfonts.com" crossorigin />
-  <link href="https://fonts.cdnfonts.com/css/codec-pro" rel="stylesheet" />
+  <!-- Asked for without blocking the first paint: a third-party stylesheet in
+       the head holds the whole game back while a font server answers, and the
+       platform measures exactly that wait. The rules are fetched at once (the
+       preload) and applied as soon as they land (media flips to all). -->
+  <link rel="preload" as="style" href="https://fonts.cdnfonts.com/css/codec-pro" />
+  <link
+    href="https://fonts.cdnfonts.com/css/codec-pro"
+    rel="stylesheet"
+    media="print"
+    onload="this.media='all'"
+  />
 
   <!-- Mobile shells: no long-press magnifier, no text selection, no rubber-band
        scroll of the page behind the canvas. -->

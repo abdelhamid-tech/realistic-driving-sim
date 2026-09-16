@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LaunchFlow, type LaunchCheck } from "@/components/LaunchFlow";
+import { Radar } from "@/components/Radar";
 import { PaintPicker, readSavedPaint, savePaint } from "@/components/PaintPicker";
 import { createGame } from "@/game/engine";
 import {
@@ -30,11 +31,9 @@ import {
   hideInviteButton,
   isInstantMultiplayer,
   leftRoom,
-  loadingStart,
   loadingStop,
   onJoinRoom,
   showInviteButton,
-  whenReady,
   reportProgress,
   requestMidgameAd,
   requestRewardedAd,
@@ -44,6 +43,7 @@ import {
 } from "@/lib/crazygames";
 import { lobbyFull } from "@/game/lobby";
 import { loadProfile, saveProfile } from "@/game/profile";
+import { QualityWatch, TIER_NAMES, initialTier } from "@/game/perf";
 import {
   PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
@@ -629,8 +629,10 @@ export default function Drive() {
      This is what the "initial download size" is measured against, so the stop
      waits until the world is really built — not merely the moment the menu
      appears while a map is still streaming in. */
+  /* The platform's loader was already put up by main.tsx, on the first tick of
+     the page — before this bundle had even been parsed — so this page only
+     ever takes it down, and only once the world exists. */
   useEffect(() => {
-    void whenReady().then(loadingStart);
     return () => loadingStop();
   }, []);
   useEffect(() => {
@@ -902,6 +904,73 @@ export default function Drive() {
     return () => window.clearTimeout(t);
   }, [launchReady, launchDone]);
 
+  /* ================================================= the frame rate, owned here
+   *  The engine has a watchdog of its own, but this page knows two things the
+   *  engine cannot: the tier this machine measurably settled on last time (read
+   *  before the engine even builds its renderer — see src/game/perf), and the
+   *  difference between a slow machine and a tab that was simply in the
+   *  background. Alt-tabbing is not a slow frame, and it must not cost the
+   *  player a tier.
+   */
+  const watchRef = useRef<QualityWatch | null>(null);
+  /* -1 means the game chooses; anything else is the player's own tier, read
+     from the save the platform syncs. It is state so the panel follows it. */
+  const [pinned, setPinned] = useState(() => loadProfile().quality);
+  const [tier, setTier] = useState(initialTier);
+  const pinnedRef = useRef(pinned);
+  const autoQuality = pinned < 0;
+
+  useEffect(() => {
+    if (!booted) return;
+    const watch = new QualityWatch(
+      { apply: (t) => gameRef.current?.setQuality(t) },
+      initialTier(),
+    );
+    watchRef.current = watch;
+    /* The engine already opened on the measured tier by itself (see the first
+       call in applyQuality), so there is nothing to announce here: this only
+       has to put the player's own choice back on top of it. */
+    if (pinnedRef.current >= 0) watch.pin(pinnedRef.current);
+    const interrupt = () => watch.interrupt();
+    document.addEventListener("visibilitychange", interrupt);
+    window.addEventListener("pagehide", interrupt);
+    window.addEventListener("focus", interrupt);
+    return () => {
+      watchRef.current = null;
+      document.removeEventListener("visibilitychange", interrupt);
+      window.removeEventListener("pagehide", interrupt);
+      window.removeEventListener("focus", interrupt);
+    };
+  }, [booted]);
+
+  /* The engine already reports the frame rate to the HUD about ten times a
+     second, so the watchdog reads that number rather than measuring again. */
+  useEffect(() => {
+    const watch = watchRef.current;
+    if (!watch || !tel || !Number.isFinite(tel.fps) || tel.fps <= 0) return;
+    watch.sample(tel.fps);
+    setTier((t) => (t === watch.tier ? t : watch.tier));
+  }, [tel]);
+
+  const chooseQuality = useCallback((mode: number) => {
+    const watch = watchRef.current;
+    pinnedRef.current = mode;
+    setPinned(mode);
+    if (!watch) return;
+    watch.pin(mode);
+    setTier(watch.tier);
+    saveProfile({ quality: mode });
+    if (mode < 0) {
+      toast.message("Graphics · automatic", {
+        description: "the frame rate is measured and the tier follows it",
+      });
+    }
+  }, []);
+
+  /* Read straight from the engine every frame: never mirrored into state. */
+  const radarSnapshot = useCallback(() => gameRef.current?.netSnapshot() ?? null, []);
+  const qualityLabel = (autoQuality ? "AUTO · " : "") + TIER_NAMES[tier];
+
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-carbon text-chalk select-none">
       {/* 3D viewport */}
@@ -930,7 +999,7 @@ export default function Drive() {
         </div>
 
         {/* mode pills */}
-        <div className="pointer-events-auto absolute left-4 top-24 flex flex-wrap gap-1.5 sm:left-6 sm:top-28">
+        <div className="pointer-events-auto absolute left-4 top-[192px] flex flex-wrap gap-1.5 sm:left-6 sm:top-[244px] lg:top-28">
           {MODES.map((m, i) => (
             <button
               key={m}
@@ -947,8 +1016,10 @@ export default function Drive() {
           ))}
         </div>
 
-        {/* telemetry */}
-        <div className="absolute bottom-4 right-4 w-[212px] paper border border-edge/12 bg-card/88 p-3 backdrop-blur-sm sm:bottom-6 sm:right-6">
+        {/* telemetry — the desktop panel. On a phone the radar carries speed,
+            gear and drift points, and the two big panels would land on the
+            pedals. */}
+        <div className="absolute bottom-6 right-6 hidden w-[212px] paper border border-edge/12 bg-card/88 p-3 backdrop-blur-sm lg:block">
           <div className="mb-2 font-mono text-[9px] tracking-[0.3em] text-muted-foreground">TELEMETRY</div>
           {/* the gauge and the cluster are drawn light-on-dark in code
               (src/game/engine.ts, out of reach of this file's tools), so on the
@@ -995,8 +1066,8 @@ export default function Drive() {
           </div>
         </div>
 
-        {/* cluster */}
-        <div className="absolute bottom-4 left-4 paper border border-edge/12 bg-card/88 p-2 backdrop-blur-sm sm:bottom-6 sm:left-6">
+        {/* cluster — desktop only, for the same reason as the telemetry panel */}
+        <div className="absolute bottom-6 left-6 hidden paper border border-edge/12 bg-card/88 p-2 backdrop-blur-sm lg:block">
           <div className="w-fit border border-edge/10 bg-ink px-1.5 pt-1">
             <canvas ref={clusterRef} className="block" width={232} height={132} />
           </div>
@@ -1018,6 +1089,17 @@ export default function Drive() {
           <div><kbd className="text-signal">N</kbd> lights / <kbd className="text-signal">R</kbd> reset / <kbd className="text-signal">M</kbd> mute</div>
           <div><kbd className="text-signal">P</kbd> pause / <kbd className="text-signal">ESC</kbd> settings</div>
         </div>
+        {/* the radar: bottom left on a phone, top centre on a desktop, where
+            it is the one instrument always in the corner of the eye */}
+        {started ? (
+          <Radar
+            snapshot={radarSnapshot}
+            peers={otherDrivers}
+            tel={tel}
+            quality={qualityLabel}
+            className="absolute bottom-[104px] left-3 z-[6] w-[152px] sm:left-6 sm:w-[176px] lg:bottom-auto lg:left-1/2 lg:top-3 lg:-translate-x-1/2"
+          />
+        ) : null}
       </div>
 
       {/* ------------------------------------------------------- top actions */}
@@ -1037,9 +1119,19 @@ export default function Drive() {
       {started && (
         /* the pedals keep clear of the home indicator on a phone in fullscreen */
         <div className="absolute inset-x-0 bottom-0 z-[5] flex items-end justify-between px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] lg:hidden">
-          <div className="flex gap-2">
-            <TouchButton code="KeyA" onPointerDown={() => key("KeyA", true)} onPointerUp={() => key("KeyA", false)}>LEFT</TouchButton>
-            <TouchButton code="KeyD" onPointerDown={() => key("KeyD", true)} onPointerUp={() => key("KeyD", false)}>RIGHT</TouchButton>
+          <div className="flex flex-col gap-2">
+            {/* the two keys a phone has no way of pressing: camera and reset.
+                TouchButton sends the same key event the keyboard does, so
+                there is only one driving path in the engine. */}
+            <div className="flex gap-2">
+              <TouchButton code="KeyC" onPointerDown={() => key("KeyC", true)} onPointerUp={() => key("KeyC", false)}>CAM</TouchButton>
+              <TouchButton code="KeyR" onPointerDown={() => key("KeyR", true)} onPointerUp={() => key("KeyR", false)}>RESET</TouchButton>
+              <TouchButton code="KeyN" onPointerDown={() => key("KeyN", true)} onPointerUp={() => key("KeyN", false)}>LIGHTS</TouchButton>
+            </div>
+            <div className="flex gap-2">
+              <TouchButton code="KeyA" onPointerDown={() => key("KeyA", true)} onPointerUp={() => key("KeyA", false)}>LEFT</TouchButton>
+              <TouchButton code="KeyD" onPointerDown={() => key("KeyD", true)} onPointerUp={() => key("KeyD", false)}>RIGHT</TouchButton>
+            </div>
           </div>
           <div className="flex gap-2">
             <TouchButton code="Space" onPointerDown={() => key("Space", true)} onPointerUp={() => key("Space", false)}>HB</TouchButton>
@@ -1052,7 +1144,7 @@ export default function Drive() {
       {/* notice */}
       <div
         className={"pointer-events-none absolute left-1/2 z-[6] -translate-x-1/2 paper border border-edge/12 bg-card/92 px-4 py-1.5 font-mono text-[11px] tracking-[0.18em] backdrop-blur-sm transition-all duration-300 " + (
-          notice ? "bottom-28 opacity-100" : "bottom-24 opacity-0"
+          notice ? "bottom-[304px] opacity-100 lg:bottom-28" : "bottom-[300px] opacity-0 lg:bottom-24"
         )}
       >
         {notice}
@@ -1271,6 +1363,38 @@ export default function Drive() {
               Everyone who opens the invite link lands in the same room. Positions are relayed
               about eight times a second and drop out on their own when a driver goes quiet.
             </p>
+          </Group>
+
+          <Group label="Graphics">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              The game measures the frame rate and picks a tier for this machine, remembered for
+              the next visit. Pinning one keeps it: shadow maps, pixel density, traffic and weather
+              all follow it.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {["AUTO", ...TIER_NAMES].map((label, i) => {
+                const mode = i - 1;
+                const on = mode < 0 ? autoQuality : mode === pinned;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => chooseQuality(mode)}
+                    className={
+                      "cursor-pointer border px-2.5 py-1 font-mono text-[10px] tracking-[0.14em] transition-colors " +
+                      (on
+                        ? "border-signal bg-signal font-semibold text-carbon"
+                        : "border-edge/15 text-muted-foreground hover:border-signal/60 hover:text-chalk")
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+              <span className="self-center font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
+                NOW · {qualityLabel}
+              </span>
+            </div>
           </Group>
 
           <Group label="World">

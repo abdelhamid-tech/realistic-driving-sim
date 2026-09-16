@@ -37,6 +37,8 @@ export interface PlayerProfile {
   volume: number;
   /** whether the last run was online */
   net: boolean;
+  /** graphics tier the player pinned, or -1 to let the game measure it */
+  quality: number;
 }
 
 export const DEFAULT_PROFILE: PlayerProfile = {
@@ -46,6 +48,7 @@ export const DEFAULT_PROFILE: PlayerProfile = {
   camera: 0,
   volume: 0.5,
   net: true,
+  quality: -1,
 };
 
 let cache: PlayerProfile | null = null;
@@ -71,6 +74,7 @@ export function loadProfile(): PlayerProfile {
     camera: num(parsed.camera, DEFAULT_PROFILE.camera, 0, 4) | 0,
     volume: num(parsed.volume, DEFAULT_PROFILE.volume, 0, 1),
     net: typeof parsed.net === "boolean" ? parsed.net : DEFAULT_PROFILE.net,
+    quality: Math.round(num(parsed.quality, DEFAULT_PROFILE.quality, -1, 2)),
   };
   return cache;
 }

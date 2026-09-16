@@ -16,9 +16,10 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import type { WorldMapSource } from "@/game/worldmaps";
+import { cityPlan } from "@/game/cityplan";
 
 const THUMB = 384;
-const KEY = "riverbend.mapthumb.v1.";
+const KEY = "riverbend.mapthumb.v2.";
 /** above this, photographing a world costs more than the card is worth */
 const MAX_BYTES = 64 * 1024 * 1024;
 
@@ -71,87 +72,23 @@ function oneAtATime<T>(job: () => Promise<T>): Promise<T> {
 
 /* ------------------------------------------------------------- the drawn plan */
 
-/** A plan of the generated city: river, bridges, arterial grid, blocks, green. */
-function drawPlan(seedText: string): string {
-  let seed = 0;
-  for (let i = 0; i < seedText.length; i++) seed = (seed * 31 + seedText.charCodeAt(i)) >>> 0;
-  const rnd = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-
+/**
+ * A plan of the generated city. The city is code rather than a model, so its
+ * card is drawn from the same data the world is built from (see
+ * src/game/cityplan) — the streets on the card are the streets the car can
+ * drive down, the parks are the parks, and the boulevard through the plaza is
+ * exactly where the boulevard is.
+ */
+function drawPlan(): string {
   const c = document.createElement("canvas");
   c.width = THUMB;
   c.height = THUMB;
   const x = c.getContext("2d");
-  if (!x) return "";
-
-  x.fillStyle = "#f0eee6";
+  const plan = cityPlan();
+  if (!x || !plan) return "";
+  x.fillStyle = "#efeadc";
   x.fillRect(0, 0, THUMB, THUMB);
-
-  /* blocks */
-  for (let i = 0; i < 46; i++) {
-    const w = 26 + rnd() * 54;
-    const h = 26 + rnd() * 54;
-    x.fillStyle = rnd() < 0.24 ? "#dfe6d2" : "#e7e3d7";
-    x.fillRect(rnd() * (THUMB - w), rnd() * (THUMB - h), w, h);
-  }
-
-  /* arterial grid */
-  x.strokeStyle = "#d3cec0";
-  x.lineWidth = 9;
-  for (let i = 1; i <= 4; i++) {
-    const p = (i * THUMB) / 5;
-    x.beginPath();
-    x.moveTo(p, 0);
-    x.lineTo(p, THUMB);
-    x.moveTo(0, p);
-    x.lineTo(THUMB, p);
-    x.stroke();
-  }
-  x.strokeStyle = "#dfdbcd";
-  x.lineWidth = 4;
-  for (let i = 0; i < 7; i++) {
-    const p = (i + 0.5) * (THUMB / 7);
-    x.beginPath();
-    x.moveTo(p, 0);
-    x.lineTo(p, THUMB);
-    x.moveTo(0, p + 6);
-    x.lineTo(THUMB, p + 6);
-    x.stroke();
-  }
-
-  /* the river, through the city and out the other side */
-  x.strokeStyle = "#bcd2db";
-  x.lineWidth = 34;
-  x.lineCap = "round";
-  x.beginPath();
-  x.moveTo(-10, THUMB * 0.7);
-  x.bezierCurveTo(THUMB * 0.3, THUMB * 0.62, THUMB * 0.55, THUMB * 0.34, THUMB + 10, THUMB * 0.26);
-  x.stroke();
-
-  /* bridges */
-  x.strokeStyle = "#c3bdac";
-  x.lineWidth = 7;
-  for (const t of [0.22, 0.42, 0.62, 0.8]) {
-    const px = t * THUMB;
-    x.beginPath();
-    x.moveTo(px, px * -0.55 + THUMB * 0.78);
-    x.lineTo(px - 16, px * -0.55 + THUMB * 0.78 + 54);
-    x.stroke();
-  }
-
-  /* where the car starts */
-  x.strokeStyle = "#d97757";
-  x.lineWidth = 2;
-  x.beginPath();
-  x.arc(THUMB * 0.42, THUMB * 0.55, 9, 0, Math.PI * 2);
-  x.stroke();
-  x.beginPath();
-  x.moveTo(THUMB * 0.42, THUMB * 0.55);
-  x.lineTo(THUMB * 0.42, THUMB * 0.46);
-  x.stroke();
-
+  x.drawImage(plan, 0, 0, THUMB, THUMB);
   return c.toDataURL("image/jpeg", 0.85);
 }
 
@@ -234,7 +171,7 @@ export async function mapThumbnail(source: WorldMapSource): Promise<string | nul
   const hit = cached(source.id);
   if (hit) return hit;
   if (source.kind === "procedural" || !source.url) {
-    const plan = drawPlan(source.id);
+    const plan = drawPlan();
     if (plan) remember(source.id, plan);
     return plan || null;
   }

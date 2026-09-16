@@ -31,6 +31,9 @@ import {
 import type {
   CarLoadOptions, GameHandle, GameOptions, NetSnapshot, RemoteDriver, Telemetry, Weather,
 } from "./types";
+/* which tier this machine should open on — the device, and what the last
+   session measurably settled on (see ./perf) */
+import { DEVICE, initialTier } from "./perf";
 
 /* ============================================================================
  *  Driving engine. Everything lives inside createGame() so React StrictMode
@@ -51,13 +54,39 @@ export function createGame(opts: GameOptions): GameHandle {
   const rand = (a: number, b: number) => a + Math.random() * (b - a);
   const TAU = Math.PI * 2;
 
+  /* =====================================================================
+   *  WHAT MACHINE IS THIS?  — asked before a single frame is drawn
+   *
+   *  The tiers below are the budget; which one the session opens on is
+   *  decided in ./perf, from the device and from what the last session
+   *  measurably settled on, so a phone that struggled opens a step lower
+   *  instead of stuttering its way there a second time. The renderer's own
+   *  setup (multisampling, shadow map, pixel density) follows that answer:
+   *  none of it can be changed later without a recompile.
+   * ===================================================================*/
+  const QUALITY_NAMES = ["LOW", "MEDIUM", "HIGH"];
+  const TIERS = [
+    /* span: how far the sun's shadow map reaches. A smaller map buys a tight
+       frame instead of smearing the same shadow over 120 m of city. */
+    { pixel: 1, shadowPx: 512, shadowSpan: 42, shadowsOn: false, traffic: 5, particles: 0.35, rain: 0.35 },
+    { pixel: 1.25, shadowPx: 1024, shadowSpan: 62, shadowsOn: true, traffic: 9, particles: 0.7, rain: 0.7 },
+    { pixel: 2, shadowPx: 2048, shadowSpan: 80, shadowsOn: true, traffic: 14, particles: 1, rain: 1 },
+  ];
+  /** the tier this session opens on: a measurement beats a guess */
+  const startTier = initialTier();
+
   /* ------------------------------------------------------------- renderer */
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-  let pixelRatioCap = Math.min(window.devicePixelRatio || 1, 2);
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    /* multisampling is wasted once the pixels are already dense */
+    antialias: !DEVICE.phone && DEVICE.dpr <= 1.6,
+    powerPreference: "high-performance",
+  });
+  let pixelRatioCap = Math.min(DEVICE.dpr, TIERS[startTier].pixel);
   renderer.setPixelRatio(pixelRatioCap);
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = TIERS[startTier].shadowsOn;
+  renderer.shadowMap.type = startTier >= 2 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -155,7 +184,7 @@ export function createGame(opts: GameOptions): GameHandle {
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffe0ae, 2.1);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(TIERS[startTier].shadowPx, TIERS[startTier].shadowPx);
   sun.shadow.camera.left = -60;
   sun.shadow.camera.right = 60;
   sun.shadow.camera.top = 60;
@@ -210,20 +239,25 @@ export function createGame(opts: GameOptions): GameHandle {
    *  detail, then traffic, then effects — and they come back when there is
    *  headroom again. Pinning a tier skips the whole thing.
    * ===================================================================*/
-  const QUALITY_NAMES = ["LOW", "MEDIUM", "HIGH"];
-  const TIERS = [
-    { pixel: 1, shadowPx: 512, shadowsOn: false, traffic: 5, particles: 0.35, rain: 0.35 },
-    { pixel: 1.25, shadowPx: 1024, shadowsOn: true, traffic: 9, particles: 0.7, rain: 0.7 },
-    { pixel: 2, shadowPx: 2048, shadowsOn: true, traffic: 14, particles: 1, rain: 1 },
-  ];
   /** -1 is automatic; 0..2 pin a tier */
   let qualityMode = -1;
-  let qualityTier = 2;
+  let qualityTier = startTier;
   /** grace period: the first seconds are always slow (shaders, model loads) */
-  let qualityHold = 4;
+  let qualityHold = startTier >= 2 ? 3 : 1.5;
   let fastFor = 0;
+  /** has the engine's own bootstrap call happened yet (see below) */
+  let booted = false;
 
   function applyQuality(tier: number, announce = false) {
+    /* The engine bootstraps itself with the top tier (see the end of
+       createGame). Its first call is therefore nobody's request: it is this
+       session's own opening, and the measured tier is what gets applied.
+       Every call after that is obeyed exactly as given, so the player can
+       still pin HIGH on a phone if that is what they want. */
+    if (!booted) {
+      booted = true;
+      if (qualityMode === -1) tier = startTier;
+    }
     const t = clamp(tier | 0, 0, TIERS.length - 1);
     const q = TIERS[t];
     const changed = t !== qualityTier || announce;
@@ -235,6 +269,14 @@ export function createGame(opts: GameOptions): GameHandle {
       sun.shadow.mapSize.set(q.shadowPx, q.shadowPx);
       sun.shadow.map?.dispose();
       sun.shadow.map = null;
+    }
+    sun.castShadow = q.shadowsOn;
+    if (sun.shadow.camera.right !== q.shadowSpan) {
+      sun.shadow.camera.left = -q.shadowSpan;
+      sun.shadow.camera.right = q.shadowSpan;
+      sun.shadow.camera.top = q.shadowSpan;
+      sun.shadow.camera.bottom = -q.shadowSpan;
+      sun.shadow.camera.updateProjectionMatrix();
     }
     if (renderer.shadowMap.enabled !== q.shadowsOn) {
       renderer.shadowMap.enabled = q.shadowsOn;

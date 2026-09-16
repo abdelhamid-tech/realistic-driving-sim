@@ -8,7 +8,7 @@ import { ConvexReactClient } from "convex/react";
 import { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
-import { initCrazyGames } from "@/lib/crazygames";
+import { initCrazyGames, loadingStart, whenReady } from "@/lib/crazygames";
 import "./index.css";
 import "./types/global.d.ts";
 
@@ -17,6 +17,12 @@ import "./types/global.d.ts";
  * preloads the player's saved game data while initialising. On any domain the
  * SDK does not serve this resolves to "disabled" and the game is unchanged. */
 void initCrazyGames();
+
+/* ... and the platform's loading screen goes up here, not from a component's
+ * effect. The loader covers the wait for this bundle itself, and it is asked
+ * for exactly once: an effect would be mounted, cleaned up and mounted again
+ * by StrictMode, and the platform times the gap between start and stop. */
+void whenReady().then(() => loadingStart());
 
 /* the static splash painted by index.html; the app replaces it */
 document.getElementById("boot")?.remove();
