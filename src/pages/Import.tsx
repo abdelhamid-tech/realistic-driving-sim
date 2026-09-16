@@ -238,7 +238,7 @@ export default function Import() {
           </p>
 
           <form
-            className="mt-6 border border-white/12 bg-white/4 p-4"
+            className="mt-6 border border-edge/12 bg-edge/4 p-4"
             onSubmit={(e) => {
               e.preventDefault();
               void tryUnlock(key);
@@ -253,7 +253,7 @@ export default function Import() {
                 onChange={(e) => setKey(e.target.value)}
                 spellCheck={false}
                 placeholder="••••••••"
-                className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-sm tracking-[0.2em] text-chalk outline-none placeholder:text-muted-foreground/50 focus:border-signal/60"
+                className="min-w-0 flex-1 border border-edge/12 bg-card/80 px-3 py-2 font-mono text-sm tracking-[0.2em] text-chalk outline-none placeholder:text-muted-foreground/50 focus:border-signal/60"
               />
               <Button type="submit" disabled={checking} className="cursor-pointer">
                 {checking ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
@@ -318,7 +318,7 @@ export default function Import() {
           }}
           className={
             "mt-6 border border-dashed p-6 text-center transition-colors " +
-            (dragging ? "border-signal bg-signal/10" : "border-white/20 bg-white/4")
+            (dragging ? "border-signal bg-signal/10" : "border-edge/20 bg-edge/4")
           }
         >
           <UploadCloud className="mx-auto size-6 text-signal" />
@@ -339,7 +339,7 @@ export default function Import() {
               onChange={(e) => setName(e.target.value)}
               spellCheck={false}
               placeholder="name for the map (optional)"
-              className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-[11px] tracking-[0.1em] text-chalk outline-none placeholder:text-muted-foreground/60 focus:border-signal/60"
+              className="min-w-0 flex-1 border border-edge/12 bg-card/80 px-3 py-2 font-mono text-[11px] tracking-[0.1em] text-chalk outline-none placeholder:text-muted-foreground/60 focus:border-signal/60"
             />
             <Button
               variant="outline"
@@ -366,7 +366,7 @@ export default function Import() {
                 <span className="truncate">{busy}</span>
                 <span>{Math.round(progress * 100)}%</span>
               </div>
-              <div className="mt-1 h-1.5 w-full bg-white/10">
+              <div className="mt-1 h-1.5 w-full bg-edge/10">
                 <div className="h-full bg-signal transition-[width]" style={{ width: `${progress * 100}%` }} />
               </div>
             </div>
@@ -374,7 +374,7 @@ export default function Import() {
         </div>
 
         {/* ---------------------------------------------------------- vehicles */}
-        <div className="mt-8 border-t border-white/10 pt-4">
+        <div className="mt-8 border-t border-edge/10 pt-4">
           <div className="flex items-center gap-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
             <Car className="size-3.5 text-signal" /> VEHICLES / {(cars ?? []).length} IN EVERY GARAGE
           </div>
@@ -398,7 +398,7 @@ export default function Import() {
             }}
             className={
               "mt-3 border border-dashed p-5 text-center transition-colors " +
-              (dragging ? "border-signal bg-signal/10" : "border-white/20 bg-white/4")
+              (dragging ? "border-signal bg-signal/10" : "border-edge/20 bg-edge/4")
             }
           >
             <UploadCloud className="mx-auto size-5 text-signal" />
@@ -409,7 +409,7 @@ export default function Import() {
               <select
                 value={carPreset}
                 onChange={(e) => setCarPreset(e.target.value)}
-                className="border border-white/12 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                className="border border-edge/12 bg-card/80 px-2 py-1.5 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
                 title="How this car drives"
               >
                 {CAR_PRESETS.map((p) => (
@@ -448,7 +448,7 @@ export default function Import() {
             {(cars ?? []).map((c) => (
               <div
                 key={c.id}
-                className="flex flex-wrap items-center gap-2 border border-white/12 bg-white/4 p-3"
+                className="flex flex-wrap items-center gap-2 border border-edge/12 bg-edge/4 p-3"
               >
                 <span className="font-display text-sm font-bold tracking-tight">{c.name}</span>
                 <span className="font-mono text-[10px] text-muted-foreground">
@@ -464,7 +464,7 @@ export default function Import() {
                         "Saving",
                       )
                     }
-                    className="border border-white/12 bg-black/40 px-1.5 py-1 font-mono text-[10px] text-chalk outline-none focus:border-signal/60"
+                    className="border border-edge/12 bg-card/80 px-1.5 py-1 font-mono text-[10px] text-chalk outline-none focus:border-signal/60"
                     title="How this car drives"
                   >
                     {CAR_PRESETS.map((p) => (
@@ -485,7 +485,7 @@ export default function Import() {
                       "cursor-pointer border px-2 py-1 font-mono text-[10px] transition-colors " +
                       (c.turn === 180
                         ? "border-signal bg-signal text-carbon"
-                        : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                        : "border-edge/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
                     }
                     title="Flip the body 180° if the rigger points it backwards"
                   >
@@ -511,7 +511,7 @@ export default function Import() {
         </div>
 
         {/* -------------------------------------------------------------- maps */}
-        <div className="mt-8 border-t border-white/10 pt-4">
+        <div className="mt-8 border-t border-edge/10 pt-4">
           <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
             STORED WORLDS / {list.length}
           </div>
@@ -529,7 +529,7 @@ export default function Import() {
                 <div
                   key={row.id}
                   className={
-                    "border p-3 " + (row.active ? "border-signal bg-signal/10" : "border-white/12 bg-white/4")
+                    "border p-3 " + (row.active ? "border-signal bg-signal/10" : "border-edge/12 bg-edge/4")
                   }
                 >
                   <div className="flex items-baseline justify-between gap-3">
@@ -606,7 +606,7 @@ export default function Import() {
                     </Button>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/8 pt-3">
+                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-edge/8 pt-3">
                     <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
                       FIT TO (M)
                       <input
@@ -618,7 +618,7 @@ export default function Import() {
                           const v = Math.max(0, Math.min(20000, Number(e.target.value) || 0));
                           void guarded(() => tune({ password: key, id: row.id as never, fitTo: v }), "Saving");
                         }}
-                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                        className="mt-1 w-full border border-edge/12 bg-card/80 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
                       />
                     </label>
                     <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
@@ -633,7 +633,7 @@ export default function Import() {
                           const v = Math.max(1, Math.min(20, Number(e.target.value) || 4));
                           void guarded(() => tune({ password: key, id: row.id as never, cell: v }), "Saving");
                         }}
-                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                        className="mt-1 w-full border border-edge/12 bg-card/80 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
                       />
                     </label>
                     <label className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
@@ -648,7 +648,7 @@ export default function Import() {
                           const v = Math.max(0.5, Math.min(20, Number(e.target.value) || 2.2));
                           void guarded(() => tune({ password: key, id: row.id as never, wallHeight: v }), "Saving");
                         }}
-                        className="mt-1 w-full border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                        className="mt-1 w-full border border-edge/12 bg-card/80 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
                       />
                     </label>
                     <div className="font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
@@ -665,7 +665,7 @@ export default function Import() {
                               "flex-1 cursor-pointer border py-1 font-mono text-[10px] transition-colors " +
                               ((row.turn ?? 0) === t
                                 ? "border-signal bg-signal text-carbon"
-                                : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                                : "border-edge/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
                             }
                           >
                             {t}°

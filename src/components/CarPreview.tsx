@@ -2,9 +2,10 @@
  * THE SHOWROOM — a car, turning on its own little turntable.
  *
  * This is a second, tiny renderer that exists only while a car is being chosen:
- * the real game's canvas is still behind the menu, paused and dark, and it is
+ * the real game's canvas is still behind the menu, paused underneath, and it is
  * not where a player picking a car wants to look. The selected model is loaded
- * here, dropped on the floor, framed, and spun slowly.
+ * here, dropped on an ivory studio floor, framed, and spun slowly — so the
+ * turntable reads as part of the paper the menus are cut from.
  *
  * Paint is live. Materials the model calls paint (or, failing that, the surface
  * most of the model's body uses) are re-coloured in place the instant the
@@ -117,32 +118,32 @@ export function CarPreview({ url, kind, paint, turn = 0, className }: CarPreview
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 400);
 
-    scene.add(new THREE.HemisphereLight(0xbdd4ff, 0x2a2622, 1.25));
-    const key = new THREE.DirectionalLight(0xfff3e2, 2.5);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xe8e2d6, 1.15));
+    const key = new THREE.DirectionalLight(0xfff6e8, 2.3);
     key.position.set(5, 7, 6);
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x7fb0ff, 1.7);
+    const rim = new THREE.DirectionalLight(0xc9d8ee, 1.15);
     rim.position.set(-6, 4, -5);
     scene.add(rim);
-    const bounce = new THREE.DirectionalLight(0xffb27a, 0.55);
+    const bounce = new THREE.DirectionalLight(0xffd9b8, 0.45);
     bounce.position.set(0, -4, 3);
     scene.add(bounce);
 
-    /* the floor: a dark disc with the game's signal ring around it */
+    /* the floor: a matte ivory disc with the accent ring around it */
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(4.4, 64),
-      new THREE.MeshStandardMaterial({ color: 0x101319, roughness: 0.72, metalness: 0.28 }),
+      new THREE.MeshStandardMaterial({ color: 0xe4e0d6, roughness: 0.88, metalness: 0.04 }),
     );
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(3.34, 3.4, 128),
-      new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xd97757, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.004;
     scene.add(ring);
-    const grid = new THREE.GridHelper(8.8, 22, 0x28303c, 0x1a2027);
+    const grid = new THREE.GridHelper(8.8, 22, 0xcfc9ba, 0xdcd7c9);
     (grid.material as THREE.Material).transparent = true;
     (grid.material as THREE.Material).opacity = 0.5;
     grid.position.y = 0.002;

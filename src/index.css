@@ -41,50 +41,87 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Apex City motorsport theme tokens */
+  /* CANTACT PATCH theme tokens — Claude's palette.
+   *
+   * Warm ivory paper, near-black ink, and a single terracotta accent
+   * (#d97757, Claude's coral). Hairlines and subtle washes are the ink colour
+   * at a low alpha (`border-edge/12`), which is what keeps a light theme from
+   * looking like grey soup.
+   *
+   * The token *names* are the ones the arcade build used, so every screen came
+   * through the re-theme without being touched: read `carbon` as "the surface"
+   * and `chalk` as "the text", not as colours. `carbon-2` is the paper one
+   * shade deeper, for wells and insets. */
   --font-display: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Codec Pro", "Outfit", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
-  --color-signal: #ff6a2a;
-  --color-signal-soft: #ffa06a;
-  --color-carbon: #0b0c0f;
-  --color-carbon-2: #14161b;
-  --color-chalk: #ece9e2;
+  --color-signal: #d97757;
+  --color-signal-soft: #eab49f;
+  --color-carbon: #faf9f5;
+  --color-carbon-2: #f0eee6;
+  --color-chalk: #141413;
+  /* hairlines, dividers, washes — always used at an alpha */
+  --color-edge: #141413;
+  /* solid surfaces: cream panels over the 3D view, and a dark scrim */
+  --color-paper: #faf9f5;
+  --color-ink: #1f1e1b;
+
+  /* ------------------------------------------------------------------
+   *  THE OLD NAMES — read this before using `white` or `black` anywhere.
+   *
+   *  They are NOT white and black in this game, and they are only ever used
+   *  with an alpha: `white` is the ink colour, for hairlines and the faint
+   *  wash inside a well, and `black` is the paper a floating panel is cut
+   *  from. The HUD still writes its frosted panels the arcade way
+   *  (`border-white/12`, `bg-white/4`, `bg-black/60`) and this is what makes
+   *  them land on the Claude palette. New code should reach for `edge`, `card`
+   *  or `paper` by name instead.
+   * ------------------------------------------------------------------ */
+  --color-white: #141413;
+  --color-black: #faf9f5;
+
+  /* "ready / live": Tailwind's emerald-400 is far too bright to read on
+     ivory, so the whole family is darkened to a muted olive that belongs to
+     the palette. Same reasoning as the two names above — one place to change,
+     every screen follows. */
+  --color-emerald-400: #55763f;
+  --color-emerald-600: #3f5c2e;
 }
 
-/* CHANGE VALUES FOR THEME */
+/* CHANGE VALUES FOR THEME — Claude's light palette */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #faf9f5;
+  --foreground: #141413;
+  --card: #fdfcf9;
+  --card-foreground: #141413;
+  --popover: #fdfcf9;
+  --popover-foreground: #141413;
+  --primary: #d97757;
+  --primary-foreground: #fdfcf9;
+  --secondary: #f0eee6;
+  --secondary-foreground: #141413;
+  --muted: #f0eee6;
+  --muted-foreground: #6c6b65;
+  --accent: #efe9e0;
+  --accent-foreground: #141413;
+  --destructive: #b3412f;
+  --border: #e6e3d9;
+  --input: #e6e3d9;
+  --ring: #d97757;
+  --chart-1: #d97757;
+  --chart-2: #7a8b6f;
+  --chart-3: #5b6f8a;
+  --chart-4: #d9a95c;
+  --chart-5: #a26a4e;
+  --sidebar: #f5f3ec;
+  --sidebar-foreground: #141413;
+  --sidebar-primary: #d97757;
+  --sidebar-primary-foreground: #fdfcf9;
+  --sidebar-accent: #efe9e0;
+  --sidebar-accent-foreground: #141413;
+  --sidebar-border: #e6e3d9;
+  --sidebar-ring: #d97757;
 }
 
 .dark {
@@ -126,7 +163,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    /* Codec Pro is the text face; the display face stays Rajdhani, which has
+       the heavy weights the big headings are drawn in. */
+    @apply bg-background text-foreground font-sans;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {
@@ -157,5 +196,21 @@ html {
 }
 
 ::selection {
-  background: rgba(255, 106, 42, 0.35);
+  background: rgba(217, 119, 87, 0.32);
+}
+
+/* --------------------------------------------------------------------------
+ *  PAPER
+ *
+ *  One warm shadow recipe for every raised surface (menus, HUD panels, the
+ *  car turntable). On a light theme a hairline alone reads flat, and a hard
+ *  black shadow reads like a 2010 dashboard — this is the middle: a wide, very
+ *  soft warm shadow, barely visible, that lifts a panel off the paper.
+ * ------------------------------------------------------------------------*/
+.paper {
+  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.05), 0 10px 30px -18px rgba(20, 20, 19, 0.35);
+}
+
+.paper-lg {
+  box-shadow: 0 2px 4px rgba(20, 20, 19, 0.06), 0 30px 60px -30px rgba(20, 20, 19, 0.4);
 }

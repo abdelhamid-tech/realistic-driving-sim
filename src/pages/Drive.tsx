@@ -910,7 +910,7 @@ export default function Drive() {
       {/* vignette */}
       <div
         className="pointer-events-none absolute inset-0 z-[2]"
-        style={{ background: "radial-gradient(ellipse at center, transparent 52%, rgba(4,5,8,.55) 100%)" }}
+        style={{ background: "radial-gradient(ellipse at center, transparent 52%, rgba(30,28,23,.5) 100%)" }}
       />
 
       {/* ------------------------------------------------------------ HUD */}
@@ -939,7 +939,7 @@ export default function Drive() {
               className={"cursor-pointer border px-2.5 py-1 font-mono text-[10px] tracking-[0.14em] transition-colors " + (
                 tel?.modeIndex === i
                   ? "border-signal bg-signal text-carbon font-semibold"
-                  : "border-white/15 bg-black/45 text-muted-foreground hover:border-signal/60 hover:text-chalk"
+                  : "border-edge/15 bg-card/85 text-muted-foreground hover:border-signal/60 hover:text-chalk"
               )}
             >
               {i + 1}/{m}
@@ -948,9 +948,15 @@ export default function Drive() {
         </div>
 
         {/* telemetry */}
-        <div className="absolute bottom-4 right-4 w-[212px] border border-white/12 bg-black/60 p-3 backdrop-blur-sm sm:bottom-6 sm:right-6">
+        <div className="absolute bottom-4 right-4 w-[212px] paper border border-edge/12 bg-card/88 p-3 backdrop-blur-sm sm:bottom-6 sm:right-6">
           <div className="mb-2 font-mono text-[9px] tracking-[0.3em] text-muted-foreground">TELEMETRY</div>
-          <canvas ref={gmeterRef} className="mx-auto block" width={118} height={118} />
+          {/* the gauge and the cluster are drawn light-on-dark in code
+              (src/game/engine.ts, out of reach of this file's tools), so on the
+              light HUD they sit in an ink instrument well — the dial reads, and
+              the panel around it stays paper. */}
+          <div className="mx-auto w-fit border border-edge/10 bg-ink p-1">
+            <canvas ref={gmeterRef} className="block" width={118} height={118} />
+          </div>
           <Row label="SPEED" value={tel ? Math.round(tel.speedKph) + " km/h" : "-"} />
           <Row label="RPM" value={tel ? Math.round(tel.rpm).toString() : "-"} />
           <Row label="SURFACE" value={tel?.surface ?? "TARMAC"} />
@@ -970,7 +976,7 @@ export default function Drive() {
               const pct = Math.min(slip, 1.5) / 1.5;
               return (
                 <div key={w} className="flex flex-1 flex-col items-center gap-1">
-                  <div className="relative h-11 w-full overflow-hidden bg-white/8">
+                  <div className="relative h-11 w-full overflow-hidden bg-edge/8">
                     <div
                       className={"absolute bottom-0 left-0 right-0 transition-[height] duration-100 " + (slip > 0.9 ? "bg-signal" : "bg-emerald-400/80")}
                       style={{ height: pct * 100 + "%" }}
@@ -990,8 +996,10 @@ export default function Drive() {
         </div>
 
         {/* cluster */}
-        <div className="absolute bottom-4 left-4 border border-white/12 bg-black/60 p-2 backdrop-blur-sm sm:bottom-6 sm:left-6">
-          <canvas ref={clusterRef} className="block" width={232} height={132} />
+        <div className="absolute bottom-4 left-4 paper border border-edge/12 bg-card/88 p-2 backdrop-blur-sm sm:bottom-6 sm:left-6">
+          <div className="w-fit border border-edge/10 bg-ink px-1.5 pt-1">
+            <canvas ref={clusterRef} className="block" width={232} height={132} />
+          </div>
           <div className="px-1 pb-0.5 font-mono text-[8px] tracking-[0.2em] text-muted-foreground">
             {(tel?.gear ?? "D1") + " / " + (driver || "DRIVER").toUpperCase().slice(0, 14)}
             {headlights ? " / LIGHTS" : ""}
@@ -1002,7 +1010,7 @@ export default function Drive() {
         </div>
 
         {/* controls legend */}
-        <div className="absolute right-4 top-4 hidden border border-white/12 bg-black/60 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground backdrop-blur-sm lg:block">
+        <div className="absolute right-4 top-4 hidden paper border border-edge/12 bg-card/88 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground backdrop-blur-sm lg:block">
           <div className="mb-1 tracking-[0.2em] text-chalk">CONTROLS</div>
           <div><kbd className="text-signal">W</kbd>/<kbd className="text-signal">S</kbd> throttle / brake</div>
           <div><kbd className="text-signal">A</kbd>/<kbd className="text-signal">D</kbd> steer / <kbd className="text-signal">SPACE</kbd> handbrake</div>
@@ -1043,7 +1051,7 @@ export default function Drive() {
 
       {/* notice */}
       <div
-        className={"pointer-events-none absolute left-1/2 z-[6] -translate-x-1/2 border border-white/12 bg-black/70 px-4 py-1.5 font-mono text-[11px] tracking-[0.18em] backdrop-blur-sm transition-all duration-300 " + (
+        className={"pointer-events-none absolute left-1/2 z-[6] -translate-x-1/2 paper border border-edge/12 bg-card/92 px-4 py-1.5 font-mono text-[11px] tracking-[0.18em] backdrop-blur-sm transition-all duration-300 " + (
           notice ? "bottom-28 opacity-100" : "bottom-24 opacity-0"
         )}
       >
@@ -1058,7 +1066,7 @@ export default function Drive() {
             id={BANNER_ID}
             className={
               "pointer-events-auto h-[60px] w-full max-w-[728px] sm:h-[90px] " +
-              (bannerLive ? "border-t border-white/10" : "")
+              (bannerLive ? "border-t border-edge/10" : "")
             }
           />
         </div>
@@ -1067,7 +1075,7 @@ export default function Drive() {
       {/* --------------------------------------------------------- overlays */}
       {worldLoad && started ? (
         <div className="pointer-events-none absolute inset-x-0 top-16 z-[7] flex justify-center">
-          <div className="border border-white/12 bg-black/75 px-4 py-2 text-center backdrop-blur-sm">
+          <div className="border border-edge/12 bg-card/94 px-4 py-2 text-center backdrop-blur-sm">
             <div className="font-mono text-[10px] tracking-[0.24em] text-signal">
               BUILDING {worldName.toUpperCase()} · {Math.round(worldLoad.p * 100)}%
             </div>
@@ -1078,7 +1086,7 @@ export default function Drive() {
 
       {bootError && (
         <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon/95 p-6">
-          <div className="max-w-md border border-destructive/50 bg-black/60 p-6 text-center">
+          <div className="max-w-md border border-destructive/50 bg-card/88 p-6 text-center">
             <div className="font-display text-xl font-bold tracking-tight">WebGL could not start</div>
             <p className="mt-2 text-sm text-muted-foreground">{bootError}</p>
             <Button
@@ -1131,8 +1139,8 @@ export default function Drive() {
       )}
 
       {started && paused && (
-        <div className="absolute inset-0 z-[7] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="w-[min(92vw,420px)] border border-white/12 bg-carbon p-6 text-center">
+        <div className="absolute inset-0 z-[7] flex items-center justify-center bg-ink/45 backdrop-blur-md">
+          <div className="w-[min(92vw,420px)] border border-edge/12 bg-carbon p-6 text-center">
             <div className="font-mono text-[10px] tracking-[0.3em] text-signal">PAUSED</div>
             <div className="mt-1 font-display text-2xl font-bold tracking-tight">Engine idling</div>
             {othersOnline > 0 ? (
@@ -1202,7 +1210,7 @@ export default function Drive() {
                 }}
                 spellCheck={false}
                 placeholder="room code"
-                className="min-w-0 flex-1 border border-white/12 bg-black/40 px-2 py-1.5 font-mono text-[11px] tracking-[0.14em] text-chalk uppercase outline-none placeholder:text-muted-foreground/60 focus:border-signal/60"
+                className="min-w-0 flex-1 border border-edge/12 bg-card/80 px-2 py-1.5 font-mono text-[11px] tracking-[0.14em] text-chalk uppercase outline-none placeholder:text-muted-foreground/60 focus:border-signal/60"
               />
               <Button size="sm" variant="outline" className="cursor-pointer font-mono text-[10px]" onClick={() => joinRoom(roomDraft)}>
                 JOIN
@@ -1240,11 +1248,11 @@ export default function Drive() {
               </p>
             )}
 
-            <div className="mt-3 border border-white/10 bg-white/4">
-              <div className="flex items-center gap-1.5 border-b border-white/8 px-2 py-1.5 font-mono text-[9px] tracking-[0.22em] text-muted-foreground">
+            <div className="mt-3 border border-edge/10 bg-edge/4">
+              <div className="flex items-center gap-1.5 border-b border-edge/8 px-2 py-1.5 font-mono text-[9px] tracking-[0.22em] text-muted-foreground">
                 <Users className="size-3 text-signal" /> {room.toUpperCase()} / {1 + othersOnline} ONLINE
               </div>
-              <ul className="divide-y divide-white/8">
+              <ul className="divide-y divide-edge/8">
                 <li className="flex items-center gap-2 px-2 py-1.5 font-mono text-[10px]">
                   <span className="size-1.5 bg-signal" />
                   <span className="min-w-0 flex-1 truncate text-chalk">YOU</span>
@@ -1282,7 +1290,7 @@ export default function Drive() {
                     type="button"
                     onClick={() => chooseWorld(source)}
                     className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
-                      driving ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                      driving ? "border-signal bg-signal/10" : "border-edge/12 hover:border-signal/50"
                     )}
                   >
                     <div className="flex items-baseline justify-between gap-2">
@@ -1303,7 +1311,7 @@ export default function Drive() {
                   <span>{worldLoad.note}</span>
                   <span>{Math.round(worldLoad.p * 100)}%</span>
                 </div>
-                <div className="mt-1 h-1.5 w-full bg-white/10">
+                <div className="mt-1 h-1.5 w-full bg-edge/10">
                   <div className="h-full bg-signal transition-[width]" style={{ width: `${worldLoad.p * 100}%` }} />
                 </div>
               </div>
@@ -1320,7 +1328,7 @@ export default function Drive() {
                   className={"cursor-pointer border px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] transition-colors " + (
                     camera === i
                       ? "border-signal bg-signal text-carbon font-semibold"
-                      : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
+                      : "border-edge/12 text-muted-foreground hover:border-signal/50 hover:text-chalk"
                   )}
                 >
                   {c.toUpperCase()}
@@ -1393,7 +1401,7 @@ export default function Drive() {
                     type="button"
                     onClick={() => chooseCar(m.id)}
                     className={"w-full cursor-pointer border p-3 text-left transition-colors " + (
-                      active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50"
+                      active ? "border-signal bg-signal/10" : "border-edge/12 hover:border-signal/50"
                     )}
                   >
                     <div className="flex items-baseline justify-between gap-2">

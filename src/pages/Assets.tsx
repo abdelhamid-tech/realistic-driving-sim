@@ -227,7 +227,7 @@ export default function Assets() {
   if (!unlocked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-carbon p-6">
-        <div className="w-full max-w-sm border border-white/10 bg-black/40 p-6">
+        <div className="w-full max-w-sm border border-edge/10 bg-card/80 p-6">
           <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.3em] text-signal">
             <ImageIcon className="size-3.5" /> GLOBAL TEXTURES
           </div>
@@ -249,7 +249,7 @@ export default function Assets() {
               onChange={(e) => setKey(e.target.value)}
               placeholder="owner key"
               autoFocus
-              className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-sm text-chalk outline-none focus:border-signal/60"
+              className="min-w-0 flex-1 border border-edge/12 bg-card/80 px-3 py-2 font-mono text-sm text-chalk outline-none focus:border-signal/60"
             />
             <Button type="submit" disabled={checking || !key} className="cursor-pointer">
               {checking ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
@@ -315,11 +315,11 @@ export default function Assets() {
                 }}
                 className={
                   "flex items-center gap-4 border p-4 transition-colors " +
-                  (dragSlot === slot ? "border-signal bg-signal/10" : "border-white/10 bg-white/[0.03]")
+                  (dragSlot === slot ? "border-signal bg-signal/10" : "border-edge/10 bg-edge/[0.03]")
                 }
               >
                 {/* current texture, shipped or override */}
-                <div className="size-20 shrink-0 overflow-hidden border border-white/10 bg-black/40">
+                <div className="size-20 shrink-0 overflow-hidden border border-edge/10 bg-card/80">
                   <img
                     src={row?.url ?? `tex/${slot}.png`}
                     alt={label}
@@ -408,9 +408,9 @@ export default function Assets() {
             return (
               <div
                 key={slot.id}
-                className="flex flex-wrap items-center gap-4 border border-white/10 bg-white/[0.03] p-4"
+                className="flex flex-wrap items-center gap-4 border border-edge/10 bg-edge/[0.03] p-4"
               >
-                <div className="flex size-16 shrink-0 items-center justify-center border border-white/10 bg-black/40">
+                <div className="flex size-16 shrink-0 items-center justify-center border border-edge/10 bg-card/80">
                   <Trees className="size-6 text-signal/70" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -446,7 +446,7 @@ export default function Assets() {
                         step={90}
                         defaultValue={row.turn}
                         onChange={(e) => void turnProp(row.id, Number(e.target.value) || 0)}
-                        className="w-16 border border-white/12 bg-black/40 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
+                        className="w-16 border border-edge/12 bg-card/80 px-2 py-1 font-mono text-[11px] text-chalk outline-none focus:border-signal/60"
                       />
                     </label>
                   ) : null}

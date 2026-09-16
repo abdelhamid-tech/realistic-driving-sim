@@ -66,16 +66,16 @@ export function PaintPicker({
                 "h-7 w-full border transition-transform " +
                 (active
                   ? "scale-[1.06] border-signal ring-1 ring-signal/60"
-                  : "border-white/20 hover:scale-[1.04] hover:border-chalk/50")
+                  : "border-edge/20 hover:scale-[1.04] hover:border-chalk/50")
               }
             />
           );
         })}
         <label
           title="Custom colour"
-          className="relative flex h-7 cursor-pointer items-center justify-center border border-white/20 bg-[conic-gradient(at_50%_50%,#ff6a2a,#ffe066,#5ad27a,#3ba7ff,#a06bff,#ff6a2a)] font-mono text-[9px] tracking-[0.1em] text-carbon transition-transform hover:scale-[1.04]"
+          className="relative flex h-7 cursor-pointer items-center justify-center border border-edge/20 bg-[conic-gradient(at_50%_50%,#ff6a2a,#ffe066,#5ad27a,#3ba7ff,#a06bff,#ff6a2a)] font-mono text-[9px] tracking-[0.1em] text-carbon transition-transform hover:scale-[1.04]"
         >
-          <span className="bg-black/45 px-1 text-[9px] text-chalk">+</span>
+          <span className="bg-card/85 px-1 text-[9px] text-chalk">+</span>
           <input
             type="color"
             value={hexOf(paint)}

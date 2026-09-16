@@ -85,7 +85,7 @@ function ErrorDialog({
         setError(null);
       }}
     >
-      <DialogContent className="bg-red-700 text-white max-w-4xl">
+      <DialogContent className="bg-red-700 text-primary-foreground max-w-4xl">
         <DialogHeader>
           <DialogTitle>Runtime Error</DialogTitle>
         </DialogHeader>
@@ -98,7 +98,7 @@ function ErrorDialog({
               </div>
             </CollapsibleTrigger>
             <CollapsibleContent className="max-w-[460px]">
-              <div className="mt-2 p-3 bg-neutral-800 rounded text-white text-sm overflow-x-auto max-h-60 max-w-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              <div className="mt-2 p-3 bg-neutral-800 rounded text-primary-foreground text-sm overflow-x-auto max-h-60 max-w-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <pre className="whitespace-pre">{error.stack}</pre>
               </div>
             </CollapsibleContent>

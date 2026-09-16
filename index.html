@@ -6,7 +6,7 @@
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#0b0c0f" />
+  <meta name="theme-color" content="#faf9f5" />
   <meta
     name="description"
     content="Cantact Patch — an open-city driving simulator in the browser: 240 Hz vehicle dynamics, real imported car models, live multiplayer rooms and a city that wakes up at dusk."
@@ -21,9 +21,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap"
     rel="stylesheet"
   />
+
+  <!-- Codec Pro is the text face. It is served by a font CDN because the
+       family is not on Google Fonts; Outfit (above) is the stand-in if this
+       request never answers, and the two are close enough in shape that the
+       layout does not move. NOTE: the CDN copy is licensed for personal,
+       non-commercial use — buy the Zetafonts licence, or drop this link and
+       Outfit takes over, before the game earns anything. -->
+  <link rel="preconnect" href="https://fonts.cdnfonts.com" crossorigin />
+  <link href="https://fonts.cdnfonts.com/css/codec-pro" rel="stylesheet" />
 
   <!-- Mobile shells: no long-press magnifier, no text selection, no rubber-band
        scroll of the page behind the canvas. -->
@@ -35,7 +44,7 @@
       height: 100%;
       overflow: hidden;
       overscroll-behavior: none;
-      background: #0b0c0f;
+      background: #faf9f5;
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
@@ -56,14 +65,14 @@
       align-items: center;
       justify-content: center;
       gap: 1rem;
-      background: radial-gradient(ellipse 60% 50% at 50% 45%, #101827, #0b0c0f 70%);
-      color: #ff6a2a;
+      background: radial-gradient(ellipse 60% 50% at 50% 45%, #ffffff, #f0eee6 70%);
+      color: #d97757;
       font-family: "IBM Plex Mono", ui-monospace, monospace;
       font-size: 11px;
       letter-spacing: 0.32em;
     }
 
-    /* the mark: white letterforms, blue keyline, the same bloom as the SVG */
+    /* the mark: ink letterforms, terracotta keyline, the same bloom as the SVG */
     #boot .mark {
       display: flex;
       flex-direction: column;
@@ -74,13 +83,13 @@
       font-size: clamp(34px, 9vw, 56px);
       line-height: 0.94;
       letter-spacing: 0.04em;
-      color: #ffffff;
-      -webkit-text-stroke: 1.6px rgba(143, 182, 230, 0.95);
-      text-shadow: 0 0 22px rgba(143, 182, 230, 0.55);
+      color: #141413;
+      -webkit-text-stroke: 1.6px rgba(217, 119, 87, 0.9);
+      text-shadow: 0 0 22px rgba(217, 119, 87, 0.4);
     }
 
     #boot .note {
-      color: #6f7783;
+      color: #6c6b65;
       font-size: 10px;
       letter-spacing: 0.34em;
     }

@@ -1,10 +1,10 @@
 /**
  * CANTACT PATCH — the mark.
  *
- * Drawn as SVG text rather than shipped as a bitmap: white letterforms with a
- * blue keyline and a soft blue bloom, which is what the logo is. Being text it
- * stays crisp at every size, weighs nothing, and picks up the display font the
- * rest of the game already loads.
+ * Drawn as SVG text rather than shipped as a bitmap: ink letterforms with a
+ * terracotta keyline and a soft warm bloom, so the mark sits on Claude's ivory
+ * paper the way a stamped plate would. Being text it stays crisp at every
+ * size, weighs nothing, and picks up the display font the game already loads.
  */
 export function GameLogo({
   className,
@@ -35,8 +35,8 @@ export function GameLogo({
       </defs>
       <g
         filter={glow ? "url(#cp-logo-bloom)" : undefined}
-        fill="#ffffff"
-        stroke="#8fb6e6"
+        fill="#141413"
+        stroke="#d97757"
         strokeWidth="2.4"
         strokeLinejoin="round"
         paintOrder="stroke"

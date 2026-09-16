@@ -292,16 +292,16 @@ export function LaunchFlow(props: LaunchFlowProps) {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 70% 55% at 50% 0%, rgba(255,106,42,.13), transparent 62%), radial-gradient(ellipse 60% 50% at 85% 105%, rgba(56,120,190,.14), transparent 70%)",
+            "radial-gradient(ellipse 70% 55% at 50% 0%, rgba(217,119,87,.14), transparent 62%), radial-gradient(ellipse 60% 50% at 85% 105%, rgba(122,112,88,.12), transparent 70%)",
         }}
       />
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
         style={{
-          opacity: 0.05,
+          opacity: 0.07,
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
+            "linear-gradient(rgba(20,20,19,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(20,20,19,.5) 1px, transparent 1px)",
           backgroundSize: "56px 56px",
         }}
       />
@@ -312,7 +312,7 @@ export function LaunchFlow(props: LaunchFlowProps) {
           (props.bannerSpace ? "pb-[60px] sm:pb-[90px]" : "")
         }
       >
-        <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 sm:px-8">
+        <header className="flex items-center justify-between gap-4 border-b border-edge/10 px-4 py-3 sm:px-8">
           <div className="flex items-center gap-4">
             <GameLogo width={112} glow={false} />
             <span className="hidden font-mono text-[9px] tracking-[0.3em] text-muted-foreground lg:block">
@@ -332,8 +332,8 @@ export function LaunchFlow(props: LaunchFlowProps) {
                   (i === step
                     ? "border-signal bg-signal font-semibold text-carbon"
                     : i < step
-                      ? "border-white/15 text-chalk/70 hover:border-signal/60"
-                      : "border-white/10 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                      ? "border-edge/15 text-chalk/70 hover:border-signal/60"
+                      : "border-edge/10 text-muted-foreground hover:border-signal/50 hover:text-chalk")
                 }
               >
                 {String(i + 1).padStart(2, "0")} {s.key}
@@ -363,7 +363,7 @@ export function LaunchFlow(props: LaunchFlowProps) {
               <button
                 type="button"
                 onClick={forgetName}
-                className="cursor-pointer border border-white/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
+                className="cursor-pointer border border-edge/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
               >
                 CHANGE
               </button>
@@ -389,7 +389,7 @@ export function LaunchFlow(props: LaunchFlowProps) {
           ) : null}
         </main>
 
-        <footer className="flex flex-wrap items-center gap-3 border-t border-white/10 px-4 py-3 sm:px-8">
+        <footer className="flex flex-wrap items-center gap-3 border-t border-edge/10 px-4 py-3 sm:px-8">
           <Button
             variant="outline"
             className="cursor-pointer gap-2 font-mono text-[10px] tracking-[0.2em]"
@@ -455,16 +455,16 @@ function LaunchSplash({
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 60% 50% at 50% 42%, rgba(56,120,190,.16), transparent 68%), radial-gradient(ellipse 70% 40% at 50% 100%, rgba(255,106,42,.12), transparent 70%)",
+            "radial-gradient(ellipse 60% 50% at 50% 42%, rgba(217,119,87,.15), transparent 68%), radial-gradient(ellipse 70% 40% at 50% 100%, rgba(122,112,88,.13), transparent 70%)",
         }}
       />
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
         style={{
-          opacity: 0.05,
+          opacity: 0.07,
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
+            "linear-gradient(rgba(20,20,19,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(20,20,19,.5) 1px, transparent 1px)",
           backgroundSize: "56px 56px",
         }}
       />
@@ -480,7 +480,7 @@ function LaunchSplash({
             <span className="text-muted-foreground">{note.toUpperCase()}</span>
             <span className="text-signal">{pct}%</span>
           </div>
-          <div className="mt-2 h-[3px] w-full overflow-hidden bg-white/10">
+          <div className="mt-2 h-[3px] w-full overflow-hidden bg-edge/10">
             <div
               className="h-full bg-signal transition-[width] duration-300 ease-out"
               style={{ width: `${pct}%` }}
@@ -520,7 +520,7 @@ function CarStep({
   return (
     <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
       <div>
-        <div className="relative border border-white/12 bg-black/45">
+        <div className="relative paper border border-edge/12 bg-card/85">
           <CarPreview
             url={entry.url}
             kind={carKind(entry)}
@@ -547,7 +547,7 @@ function CarStep({
           </div>
         </div>
 
-        <div className="mt-3 border border-white/10 bg-white/4 p-3">
+        <div className="mt-3 border border-edge/10 bg-edge/4 p-3">
           <PaintPicker paint={paint} onChange={onPaint} />
           <p className="mt-2 font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
             THE COLOUR GOES STRAIGHT ON — WHAT TURNS HERE IS WHAT LEAVES THE LINE.
@@ -555,7 +555,7 @@ function CarStep({
         </div>
       </div>
 
-      <div className="border border-white/12 bg-black/45 p-3">
+      <div className="paper border border-edge/12 bg-card/85 p-3">
         <div className="mb-2 flex items-baseline justify-between">
           <span className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
             THE FLEET
@@ -573,7 +573,7 @@ function CarStep({
                 onClick={() => onChooseCar(c.id)}
                 className={
                   "flex cursor-pointer items-center justify-between gap-3 border px-3 py-2 text-left transition-colors " +
-                  (active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50")
+                  (active ? "border-signal bg-signal/10" : "border-edge/12 hover:border-signal/50")
                 }
               >
                 <span className="min-w-0">
@@ -619,11 +619,11 @@ function MapStep({ worlds, worldName, onWorld, worldLoad }: LaunchFlowProps) {
               onClick={() => onWorld(w)}
               className={
                 "group cursor-pointer border text-left transition-colors " +
-                (driving ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50")
+                (driving ? "border-signal bg-signal/10" : "border-edge/12 hover:border-signal/50")
               }
             >
               <MapPreview source={w} badge={badge} className="aspect-[16/10] w-full" />
-              <div className="border-t border-white/10 p-3">
+              <div className="border-t border-edge/10 p-3">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="font-display text-base font-bold tracking-tight">{w.name}</span>
                   <span
@@ -650,12 +650,12 @@ function MapStep({ worlds, worldName, onWorld, worldLoad }: LaunchFlowProps) {
       </div>
 
       {worldLoad ? (
-        <div className="mt-4 border border-white/12 bg-black/50 p-3">
+        <div className="mt-4 paper border border-edge/12 bg-card/85 p-3">
           <div className="flex items-baseline justify-between font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
             <span>BUILDING {worldName.toUpperCase()}</span>
             <span className="text-signal">{Math.round(worldLoad.p * 100)}%</span>
           </div>
-          <div className="mt-2 h-1 w-full bg-white/10">
+          <div className="mt-2 h-1 w-full bg-edge/10">
             <div
               className="h-full bg-signal transition-[width]"
               style={{ width: `${worldLoad.p * 100}%` }}
@@ -680,7 +680,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
   const { clock, phase } = hourLabel(hour);
   return (
     <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-      <div className="border border-white/12">
+      <div className="border border-edge/12">
         <div
           className="relative h-[210px] w-full sm:h-[280px]"
           style={{
@@ -709,7 +709,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
           </div>
         </div>
 
-        <div className="border-t border-white/10 bg-black/45 p-4">
+        <div className="border-t border-edge/10 bg-card/85 p-4">
           <input
             type="range"
             min={0}
@@ -717,7 +717,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
             step={0.1}
             value={hour}
             onChange={(e) => onHour(Number(e.target.value))}
-            className="w-full cursor-pointer accent-[#ff6a2a]"
+            className="w-full cursor-pointer accent-[#d97757]"
           />
           <div className="mt-2 flex flex-wrap gap-1.5">
             {SKY_PRESETS.map((p) => (
@@ -729,7 +729,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
                   "cursor-pointer border px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] transition-colors " +
                   (Math.abs(hour - p.hour) < 0.35
                     ? "border-signal bg-signal font-semibold text-carbon"
-                    : "border-white/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+                    : "border-edge/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
                 }
               >
                 {p.label}
@@ -740,7 +740,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
       </div>
 
       <div className="space-y-3">
-        <div className="border border-white/12 bg-black/45 p-4 font-mono text-[10px] leading-relaxed tracking-[0.14em] text-muted-foreground">
+        <div className="paper border border-edge/12 bg-card/85 p-4 font-mono text-[10px] leading-relaxed tracking-[0.14em] text-muted-foreground">
           <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-chalk/80">WHAT THE HOUR CHANGES</div>
           DARKNESS FALLS, THE STREET LAMPS COME ON AND THE TYRES FEEL THE COLD. GRIP IS HIGHEST AT
           MIDDAY, LOWEST JUST BEFORE DAWN — THE SAME CAR IS A DIFFERENT CAR AT 03:00.
@@ -758,7 +758,7 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
                   "cursor-pointer border p-2 text-left transition-colors " +
                   (Math.abs(hour - p.hour) < 0.35
                     ? "border-signal"
-                    : "border-white/12 hover:border-signal/50")
+                    : "border-edge/12 hover:border-signal/50")
                 }
               >
                 <div
@@ -834,7 +834,7 @@ function OnlineStep({
 
       {netOn ? (
         <div className="grid gap-3 lg:grid-cols-2">
-          <div className="border border-white/12 bg-black/45 p-4">
+          <div className="paper border border-edge/12 bg-card/85 p-4">
             <div className="mb-2 font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
               SERVER CODE
             </div>
@@ -847,7 +847,7 @@ function OnlineStep({
                 }}
                 spellCheck={false}
                 placeholder="ENTER CODE"
-                className="min-w-0 flex-1 border border-white/12 bg-black/40 px-3 py-2 font-mono text-sm tracking-[0.24em] text-chalk uppercase outline-none placeholder:text-muted-foreground/50 focus:border-signal/70"
+                className="min-w-0 flex-1 border border-edge/12 bg-card/80 px-3 py-2 font-mono text-sm tracking-[0.24em] text-chalk uppercase outline-none placeholder:text-muted-foreground/50 focus:border-signal/70"
               />
               <Button
                 className="cursor-pointer gap-1.5 font-mono text-[10px] tracking-[0.16em]"
@@ -874,7 +874,7 @@ function OnlineStep({
               </Button>
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/10 pt-3">
+            <div className="mt-3 flex items-center justify-between gap-2 border-t border-edge/10 pt-3">
               <span className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
                 YOU ARE JOINING
               </span>
@@ -889,7 +889,7 @@ function OnlineStep({
               type="button"
               onClick={() => void copy()}
               title={share}
-              className="mt-2 w-full cursor-pointer truncate border border-white/10 bg-black/30 px-2 py-1.5 text-left font-mono text-[9px] tracking-[0.1em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
+              className="mt-2 w-full cursor-pointer truncate border border-edge/10 bg-card/70 px-2 py-1.5 text-left font-mono text-[9px] tracking-[0.1em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
             >
               {platformLink ? "CRAZYGAMES INVITE · " : "GAME LINK · "}
               {share}
@@ -901,8 +901,8 @@ function OnlineStep({
             </p>
           </div>
 
-          <div className="border border-white/12 bg-black/45">
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">
+          <div className="paper border border-edge/12 bg-card/85">
+            <div className="flex items-center gap-2 border-b border-edge/10 px-4 py-2.5">
               <Users className="size-3.5 text-signal" />
               <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground">
                 {room.toUpperCase()} / {lobbyLabel(players)} ONLINE
@@ -935,7 +935,7 @@ function OnlineStep({
                       : "WAITING"}
               </span>
             </div>
-            <ul className="divide-y divide-white/8">
+            <ul className="divide-y divide-edge/8">
               <li className="flex items-center gap-2 px-4 py-2 font-mono text-[11px]">
                 <span className="size-1.5 bg-signal" />
                 <span className="min-w-0 flex-1 truncate text-chalk">YOU</span>
@@ -962,7 +962,7 @@ function OnlineStep({
           </div>
         </div>
       ) : (
-        <div className="border border-white/12 bg-black/45 p-4 font-mono text-[10px] leading-relaxed tracking-[0.14em] text-muted-foreground">
+        <div className="paper border border-edge/12 bg-card/85 p-4 font-mono text-[10px] leading-relaxed tracking-[0.14em] text-muted-foreground">
           <div className="mb-2 flex items-center gap-2 text-chalk/80">
             <Download className="size-3.5 text-signal" /> SOLO RUN
           </div>
@@ -1054,16 +1054,16 @@ function AccountGate({
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 62% 46% at 50% 0%, rgba(255,106,42,.15), transparent 64%), radial-gradient(ellipse 58% 48% at 84% 104%, rgba(56,120,190,.15), transparent 70%)",
+            "radial-gradient(ellipse 62% 46% at 50% 0%, rgba(217,119,87,.16), transparent 64%), radial-gradient(ellipse 58% 48% at 84% 104%, rgba(122,112,88,.13), transparent 70%)",
         }}
       />
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
         style={{
-          opacity: 0.05,
+          opacity: 0.07,
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
+            "linear-gradient(rgba(20,20,19,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(20,20,19,.5) 1px, transparent 1px)",
           backgroundSize: "56px 56px",
         }}
       />
@@ -1089,7 +1089,7 @@ function AccountGate({
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-          <section className="border border-white/12 bg-black/45 p-4 sm:p-5">
+          <section className="paper border border-edge/12 bg-card/85 p-4 sm:p-5">
             <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
               {user ? "CONTINUE WITH CRAZYGAMES AS" : "CRAZYGAMES ACCOUNT"}
             </div>
@@ -1100,10 +1100,10 @@ function AccountGate({
                   src={user.profilePictureUrl}
                   alt=""
                   referrerPolicy="no-referrer"
-                  className="size-12 shrink-0 border border-white/15 object-cover"
+                  className="size-12 shrink-0 border border-edge/15 object-cover"
                 />
               ) : (
-                <span className="flex size-12 shrink-0 items-center justify-center border border-white/12 bg-white/4 text-muted-foreground">
+                <span className="flex size-12 shrink-0 items-center justify-center border border-edge/12 bg-edge/4 text-muted-foreground">
                   {user ? <ShieldCheck className="size-5" /> : <LogIn className="size-5" />}
                 </span>
               )}
@@ -1126,7 +1126,7 @@ function AccountGate({
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/10 pt-3 sm:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-edge/10 pt-3 sm:grid-cols-4">
               <AccountStat label="KEPT IN" value={user ? "ACCOUNT" : "THIS BROWSER"} />
               <AccountStat label="CAR" value={profile.car ? profile.car.slice(0, 12).toUpperCase() : "DEFAULT"} />
               <AccountStat label="PROGRESS" value={`${progress.percentage}%`} />
@@ -1134,7 +1134,7 @@ function AccountGate({
             </div>
 
             {!user ? (
-              <div className="mt-4 border-t border-white/10 pt-4">
+              <div className="mt-4 border-t border-edge/10 pt-4">
                 <label
                   htmlFor="driver-name"
                   className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground"
@@ -1148,7 +1148,7 @@ function AccountGate({
                   placeholder="FAST PHIL"
                   spellCheck={false}
                   autoComplete="off"
-                  className="mt-2 w-full border border-white/12 bg-black/40 px-3 py-2.5 font-display text-lg font-bold tracking-wide text-chalk uppercase outline-none placeholder:text-muted-foreground/50 focus:border-signal/70"
+                  className="mt-2 w-full border border-edge/12 bg-card/80 px-3 py-2.5 font-display text-lg font-bold tracking-wide text-chalk uppercase outline-none placeholder:text-muted-foreground/50 focus:border-signal/70"
                 />
                 <p className="mt-1.5 font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
                   TWO CHARACTERS IS ENOUGH. NOTHING IS VERIFIED AND NO ACCOUNT IS NEEDED — THIS IS
@@ -1158,7 +1158,7 @@ function AccountGate({
             ) : null}
           </section>
 
-          <section className="border border-white/12 bg-black/45 p-4 sm:p-5">
+          <section className="paper border border-edge/12 bg-card/85 p-4 sm:p-5">
             <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
               WHAT IS KEPT
             </div>
@@ -1171,14 +1171,14 @@ function AccountGate({
               </li>
               <li>· CAMERA, VOLUME AND WHETHER YOU DRIVE ONLINE</li>
             </ul>
-            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[9px] leading-relaxed tracking-[0.12em] text-muted-foreground">
+            <p className="mt-3 border-t border-edge/10 pt-3 font-mono text-[9px] leading-relaxed tracking-[0.12em] text-muted-foreground">
               SAVED THROUGH THE CRAZYGAMES DATA MODULE, SO IT FOLLOWS THE ACCOUNT RATHER THAN THE
               MACHINE. NO EMAIL, NO PASSWORD AND NO SIGN-UP FORM INSIDE THE GAME.
             </p>
           </section>
         </div>
 
-        <div className="border border-white/12 bg-black/45 p-4 sm:p-5">
+        <div className="paper border border-edge/12 bg-card/85 p-4 sm:p-5">
           <div className="flex items-start gap-3">
             <button
               type="button"
@@ -1188,7 +1188,7 @@ function AccountGate({
               onClick={() => setTerms((v) => !v)}
               className={
                 "mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center border " +
-                (terms ? "border-signal bg-signal text-carbon" : "border-white/25 text-transparent")
+                (terms ? "border-signal bg-signal text-carbon" : "border-edge/25 text-transparent")
               }
             >
               <Check className="size-3" />
@@ -1276,7 +1276,7 @@ function ModeCard({
       onClick={onClick}
       className={
         "cursor-pointer border p-4 text-left transition-colors " +
-        (active ? "border-signal bg-signal/10" : "border-white/12 hover:border-signal/50")
+        (active ? "border-signal bg-signal/10" : "border-edge/12 hover:border-signal/50")
       }
     >
       <div className="flex items-center justify-between gap-2">
@@ -1284,7 +1284,7 @@ function ModeCard({
         <span
           className={
             "flex size-5 items-center justify-center border " +
-            (active ? "border-signal bg-signal text-carbon" : "border-white/20 text-transparent")
+            (active ? "border-signal bg-signal text-carbon" : "border-edge/20 text-transparent")
           }
         >
           <Check className="size-3" />

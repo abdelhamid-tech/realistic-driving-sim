@@ -86,19 +86,19 @@ function drawPlan(seedText: string): string {
   const x = c.getContext("2d");
   if (!x) return "";
 
-  x.fillStyle = "#0d1016";
+  x.fillStyle = "#f0eee6";
   x.fillRect(0, 0, THUMB, THUMB);
 
   /* blocks */
   for (let i = 0; i < 46; i++) {
     const w = 26 + rnd() * 54;
     const h = 26 + rnd() * 54;
-    x.fillStyle = rnd() < 0.24 ? "#232a1e" : "#161b23";
+    x.fillStyle = rnd() < 0.24 ? "#dfe6d2" : "#e7e3d7";
     x.fillRect(rnd() * (THUMB - w), rnd() * (THUMB - h), w, h);
   }
 
   /* arterial grid */
-  x.strokeStyle = "#333c48";
+  x.strokeStyle = "#d3cec0";
   x.lineWidth = 9;
   for (let i = 1; i <= 4; i++) {
     const p = (i * THUMB) / 5;
@@ -109,7 +109,7 @@ function drawPlan(seedText: string): string {
     x.lineTo(THUMB, p);
     x.stroke();
   }
-  x.strokeStyle = "#3f4a58";
+  x.strokeStyle = "#dfdbcd";
   x.lineWidth = 4;
   for (let i = 0; i < 7; i++) {
     const p = (i + 0.5) * (THUMB / 7);
@@ -122,7 +122,7 @@ function drawPlan(seedText: string): string {
   }
 
   /* the river, through the city and out the other side */
-  x.strokeStyle = "#14384c";
+  x.strokeStyle = "#bcd2db";
   x.lineWidth = 34;
   x.lineCap = "round";
   x.beginPath();
@@ -131,7 +131,7 @@ function drawPlan(seedText: string): string {
   x.stroke();
 
   /* bridges */
-  x.strokeStyle = "#4b5462";
+  x.strokeStyle = "#c3bdac";
   x.lineWidth = 7;
   for (const t of [0.22, 0.42, 0.62, 0.8]) {
     const px = t * THUMB;
@@ -142,7 +142,7 @@ function drawPlan(seedText: string): string {
   }
 
   /* where the car starts */
-  x.strokeStyle = "#ff6a2a";
+  x.strokeStyle = "#d97757";
   x.lineWidth = 2;
   x.beginPath();
   x.arc(THUMB * 0.42, THUMB * 0.55, 9, 0, Math.PI * 2);
@@ -173,7 +173,9 @@ async function shoot(source: WorldMapSource): Promise<string | null> {
   if (!renderer) return null;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0c0f);
+  /* warm dark, so the thumbnail reads as a print of the city rather than a
+     hole punched in the ivory card it sits in */
+  scene.background = new THREE.Color(0x1c1a17);
   const model = await loader().loadAsync(source.url);
   const root = model.scene;
   root.rotation.y = (source.turn * Math.PI) / 180;
@@ -290,7 +292,7 @@ export function MapPreview({
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(255,106,42,.12), transparent 70%), linear-gradient(160deg, #131720, #0b0c0f)",
+              "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(217,119,87,.14), transparent 70%), linear-gradient(160deg, #2b2823, #16150f)",
           }}
         />
       )}
@@ -303,10 +305,10 @@ export function MapPreview({
       ) : null}
       <div
         className="absolute inset-x-0 bottom-0 h-1/2"
-        style={{ background: "linear-gradient(to top, rgba(6,7,10,.92), transparent)" }}
+        style={{ background: "linear-gradient(to top, rgba(22,21,18,.92), transparent)" }}
       />
       {badge ? (
-        <span className="absolute left-2 top-2 border border-white/15 bg-black/60 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.18em] text-chalk/85 backdrop-blur-sm">
+        <span className="absolute left-2 top-2 border border-edge/15 bg-card/88 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.18em] text-chalk/85 backdrop-blur-sm">
           {badge}
         </span>
       ) : null}
