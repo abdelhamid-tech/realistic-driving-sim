@@ -32,7 +32,17 @@
        non-commercial use — buy the Zetafonts licence, or drop this link and
        Outfit takes over, before the game earns anything. -->
   <link rel="preconnect" href="https://fonts.cdnfonts.com" crossorigin />
-  <link href="https://fonts.cdnfonts.com/css/codec-pro" rel="stylesheet" />
+  <!-- Asked for without blocking the first paint: a third-party stylesheet in
+       the head holds the whole game back while a font server answers, and the
+       platform measures exactly that wait. The rules are fetched at once (the
+       preload) and applied as soon as they land (media flips to all). -->
+  <link rel="preload" as="style" href="https://fonts.cdnfonts.com/css/codec-pro" />
+  <link
+    href="https://fonts.cdnfonts.com/css/codec-pro"
+    rel="stylesheet"
+    media="print"
+    onload="this.media='all'"
+  />
 
   <!-- Mobile shells: no long-press magnifier, no text selection, no rubber-band
        scroll of the page behind the canvas. -->
@@ -94,12 +104,12 @@
       letter-spacing: 0.34em;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-2_CW0bbY.js"></script>
+  <script type="module" crossorigin src="/assets/index-Zz09Snph.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/framer-motion-DfXMriiy.js">
-  <link rel="modulepreload" crossorigin href="/assets/radix-ui-pwZGMmd6.js">
-  <link rel="modulepreload" crossorigin href="/assets/charts-CqerLo6H.js">
+  <link rel="modulepreload" crossorigin href="/assets/radix-ui-CU-WGoKH.js">
+  <link rel="modulepreload" crossorigin href="/assets/charts-CO7gB6_s.js">
   <link rel="modulepreload" crossorigin href="/assets/react-vendor-BpZQlk-g.js">
-  <link rel="stylesheet" crossorigin href="/assets/index-rfopTftJ.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-HabIbyqs.css">
 </head>
 
 <body>
