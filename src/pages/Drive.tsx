@@ -7,13 +7,15 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { LaunchFlow, type LaunchCheck } from "@/components/LaunchFlow";
+import { PaintPicker, readSavedPaint, savePaint } from "@/components/PaintPicker";
 import { createGame } from "@/game/engine";
 import {
   DEFAULT_CAR_ID, allCars, carById, carFromAll, carKind, carSpec, formatBytes,
   isImportedCarId, type CarEntry, type ImportedCar,
 } from "@/game/carmodels";
 import { PAINT_COLORS, VEHICLE_ORDER, type VehicleSpec } from "@/game/vehicles";
-import { consumeTypedName, useDriver } from "@/hooks/use-driver";
+import { useDriver } from "@/hooks/use-driver";
 import { CAMERA_LABEL, type GameHandle, type RemoteDriver, type Telemetry } from "@/game/types";
 import { completion, markCarDriven, markWorldVisited } from "@/game/progress";
 import { useCrazyGames } from "@/hooks/use-crazygames";
@@ -127,6 +129,8 @@ export default function Drive() {
   const [paused, setPaused] = useState(false);
   const [panel, setPanel] = useState<"none" | "settings" | "car">("none");
   const [booted, setBooted] = useState(false);
+  /* the loading screen is done with and the launch flow may take over */
+  const [launchReady, setLaunchReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -136,8 +140,8 @@ export default function Drive() {
      car is selected" and "the car is on the road" used to be a toast nobody
      could read while driving */
   const [modelState, setModelState] = useState<ModelState | null>(null);
-  /* one paint for everybody, one sky at a time: no pickers to fiddle with */
-  const paint = PAINT_COLORS[4];
+  /* the paint is the player's own, and it is remembered for the next visit */
+  const [paint, setPaint] = useState<number>(() => readSavedPaint(PAINT_COLORS[4]));
   const [hour, setHour] = useState(16.2);
   const [camera, setCamera] = useState(0);
   const [volume, setVolume] = useState(0.5);
@@ -217,7 +221,7 @@ export default function Drive() {
         initialVehicle: carKind(carById(DEFAULT_CAR_ID)),
         initialWeather: "clear",
         initialTimeOfDay: 16.2,
-        initialPaint: PAINT_COLORS[4],
+        initialPaint: readSavedPaint(PAINT_COLORS[4]),
         worldTextures: textureOverrides,
       });
       gameRef.current = handle;
@@ -243,6 +247,14 @@ export default function Drive() {
     }, 12000);
     return () => window.clearTimeout(t);
   }, [booted]);
+
+  /* The player's colour goes straight on: the turntable, the car on the road
+     and the next visit all read the same number. */
+  useEffect(() => {
+    if (!booted) return;
+    gameRef.current?.setPaint(paint);
+    savePaint(paint);
+  }, [booted, paint]);
 
   /* ------------------------------------------------- the street furniture *
    *  The owner's real models for the world's trees, planting, street lamps
@@ -335,25 +347,18 @@ export default function Drive() {
     [importedCars],
   );
 
+  /* The launch flow owns the run-up: the car, the world, the hour and the room
+     are all chosen before this is ever called, so DRIVE only has to let go. */
   const start = useCallback(() => {
     setStarted(true);
     setPaused(false);
     gameRef.current?.setPaused(false);
   }, []);
-  const startedRef = useRef(false);
-  const startRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
-      if (!startedRef.current) {
-        if (["Enter", "Space", "KeyW", "ArrowUp"].includes(e.code)) {
-          e.preventDefault();
-          startRef.current?.();
-        }
-        return;
-      }
       if (e.key !== "Escape") return;
       setPanel((p) => (p === "none" ? "settings" : "none"));
     };
@@ -597,13 +602,6 @@ export default function Drive() {
     }
   }, [inviteLink]);
 
-  useEffect(() => {
-    startedRef.current = started;
-  }, [started]);
-  useEffect(() => {
-    startRef.current = start;
-  }, [start]);
-
   /* ============================================================== the platform
    *  Everything CrazyGames asks for, in one place. On any other domain every
    *  call below is a no-op (see src/lib/crazygames.ts) and the game behaves
@@ -684,16 +682,6 @@ export default function Drive() {
       }),
     [],
   );
-
-  /* One click, and the platform allows exactly one. Typing a pseudonym at the
-     door IS the click: on CrazyGames the engine starts rolling with it, and the
-     garage stays one tap away in the HUD. Off-platform the garage keeps its
-     START ENGINE step, exactly as before. */
-  useEffect(() => {
-    if (!booted || !cg.active) return;
-    if (!consumeTypedName()) return;
-    start();
-  }, [booted, cg.active, start]);
 
   /* Instant multiplayer: launched from the CrazyGames multiplayer page, the
      player lands directly on the road in a brand-new joinable room — no menu
@@ -829,6 +817,43 @@ export default function Drive() {
 
   const othersOnline = otherDrivers.length;
 
+  /* ----------------------------------------------------- the launch sequence
+   *  The loading screen holds until the world really exists — renderer up,
+   *  fleet and maps answered, any active map built — instead of hiding behind
+   *  a bar that is done before the city is. A ceiling keeps one slow query
+   *  from ever holding the door shut. */
+  const checks: LaunchCheck[] = [
+    { label: "RENDERER · PHYSICS CORE", done: booted },
+    { label: "VEHICLE FLEET", done: importedCars !== undefined },
+    { label: "WORLD MAPS", done: worldMaps !== undefined },
+    { label: "STREET FURNITURE", done: propRows !== undefined && worldAssets !== undefined },
+    { label: "BUILDING THE CITY", done: booted && !worldLoad },
+  ];
+  const launchProgress = checks.filter((c) => c.done).length / checks.length;
+  const launchNote = !booted
+    ? "warming up the engine"
+    : worldLoad
+      ? `building ${worldName.toLowerCase()}`
+      : "final checks";
+  const launchDone =
+    booted &&
+    importedCars !== undefined &&
+    worldMaps !== undefined &&
+    propRows !== undefined &&
+    worldAssets !== undefined &&
+    !worldLoad;
+  /* The loading screen ends when the world really exists — or after a bounded
+     wait, so one silent query can never hold the door shut. */
+  useEffect(() => {
+    if (launchReady) return;
+    if (launchDone) {
+      setLaunchReady(true);
+      return;
+    }
+    const t = window.setTimeout(() => setLaunchReady(true), 9000);
+    return () => window.clearTimeout(t);
+  }, [launchReady, launchDone]);
+
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-carbon text-chalk select-none">
       {/* 3D viewport */}
@@ -844,7 +869,7 @@ export default function Drive() {
       <div className={"safe-inset pointer-events-none absolute inset-0 z-[3] transition-opacity duration-500 " + (started ? "opacity-100" : "opacity-0")}>
         {/* brand */}
         <div className="absolute left-4 top-4 sm:left-6 sm:top-5">
-          <div className="font-mono text-[10px] tracking-[0.34em] text-signal">RIVERBEND / DRIVE</div>
+          <div className="font-mono text-[10px] tracking-[0.34em] text-signal">CANTACT PATCH / DRIVE</div>
           <div className="font-display text-xl leading-tight font-bold tracking-tight sm:text-2xl">
             {spec.name}
           </div>
@@ -992,15 +1017,6 @@ export default function Drive() {
       ) : null}
 
       {/* --------------------------------------------------------- overlays */}
-      {!booted && !bootError && (
-        <div className="absolute inset-0 z-[8] flex items-center justify-center bg-carbon">
-          <div className="text-center">
-            <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-signal border-t-transparent" />
-            <div className="font-mono text-[11px] tracking-[0.24em] text-muted-foreground">BUILDING THE CITY...</div>
-          </div>
-        </div>
-      )}
-
       {worldLoad && started ? (
         <div className="pointer-events-none absolute inset-x-0 top-16 z-[7] flex justify-center">
           <div className="border border-white/12 bg-black/75 px-4 py-2 text-center backdrop-blur-sm">
@@ -1028,27 +1044,40 @@ export default function Drive() {
         </div>
       )}
 
-      {booted && !started && (
-        <IntroOverlay
-          entry={entry}
+      {!started && (
+        <LaunchFlow
+          ready={launchReady}
+          bannerSpace={bannerLive}
+          progress={launchProgress}
+          note={launchNote}
+          checks={checks}
           garage={garage}
+          entry={entry}
           spec={spec}
           equipping={equipping}
+          model={modelState}
           onChooseCar={chooseCar}
-          onStart={start}
-          sky={hour}
-          onSky={chooseSky}
-          driver={driver}
-          onForgetDriver={forgetDriver}
-          platform={cg.user}
-          others={othersOnline}
-          room={room}
-          netOn={netOn}
-          onNet={setNetOn}
+          paint={paint}
+          onPaint={setPaint}
           worlds={worldList}
           worldName={worldName}
           onWorld={chooseWorld}
-          model={modelState}
+          worldLoad={worldLoad}
+          hour={hour}
+          onHour={chooseSky}
+          driver={driver}
+          platform={cg.user}
+          onForgetDriver={forgetDriver}
+          netOn={netOn}
+          onNet={setNetOn}
+          room={room}
+          peers={otherDrivers}
+          netState={netState}
+          netError={netError}
+          onJoinRoom={joinRoom}
+          onCreateRoom={() => joinRoom(makeCode())}
+          inviteLink={inviteLink}
+          onStart={start}
         />
       )}
 
@@ -1347,6 +1376,13 @@ export default function Drive() {
                 );
               })}
             </div>
+          </Group>
+
+          <Group label="Paint">
+            <p className="mb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              Repainted here, it is repainted on the road — no reload, no waiting.
+            </p>
+            <PaintPicker paint={paint} onChange={setPaint} compact />
           </Group>
 
           <Group label="This run">

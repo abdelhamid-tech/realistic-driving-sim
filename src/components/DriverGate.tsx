@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GameLogo } from "@/components/GameLogo";
 import { useDriver } from "@/hooks/use-driver";
 import { useCrazyGames } from "@/hooks/use-crazygames";
 
@@ -41,6 +42,7 @@ export function DriverGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-carbon text-chalk">
         <div className="text-center">
+          <GameLogo width={190} className="mx-auto mb-6" />
           <div className="mx-auto mb-3 size-7 animate-spin rounded-full border-2 border-signal border-t-transparent" />
           <div className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
             CHECKING YOUR CRAZYGAMES ACCOUNT…
@@ -74,8 +76,8 @@ export function DriverGate({ children }: { children: React.ReactNode }) {
       />
 
       <div className="relative w-[min(94vw,480px)] border border-white/12 bg-black/55 p-6 backdrop-blur-sm sm:p-8">
-        <div className="font-mono text-[10px] tracking-[0.34em] text-signal">RIVERBEND</div>
-        <h1 className="mt-2 font-display text-4xl leading-none font-bold tracking-tight sm:text-5xl">
+        <GameLogo width={212} />
+        <h1 className="mt-5 font-display text-3xl leading-none font-bold tracking-tight sm:text-4xl">
           WHO IS DRIVING?
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
