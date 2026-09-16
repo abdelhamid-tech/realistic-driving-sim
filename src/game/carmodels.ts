@@ -189,6 +189,12 @@ export interface ImportedCar {
   turn: number;
   /** which preset this car drives like */
   preset: string;
+  /**
+   * The name of the file that was stored — for an import that arrived as FBX,
+   * OBJ or a zip, this is the .glb the converter wrote, which is what the
+   * owner's list shows. The garage itself never reads it.
+   */
+  fileName?: string;
 }
 
 /** A garage id for an imported car never collides with the built-in ones. */

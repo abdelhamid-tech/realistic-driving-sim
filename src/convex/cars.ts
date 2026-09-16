@@ -112,3 +112,23 @@ export const remove = mutation({
     return true;
   },
 });
+
+/**
+ * Clear the whole imported fleet — every row, and the bytes behind it, so a
+ * wiped garage does not leave storage bills behind. The built-in library is
+ * not touched: it lives in the bundle, not in this table.
+ *
+ * Returns how many cars went, so the button can say it out loud.
+ */
+export const removeAll = mutation({
+  args: { password: v.string() },
+  handler: async (ctx, args) => {
+    gate(args.password);
+    const rows = await ctx.db.query("importedCars").collect();
+    for (const row of rows) {
+      await ctx.storage.delete(row.storageId);
+      await ctx.db.delete(row._id);
+    }
+    return rows.length;
+  },
+});
