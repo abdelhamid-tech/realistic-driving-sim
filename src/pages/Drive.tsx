@@ -171,7 +171,7 @@ export default function Drive() {
   const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
   const loadedWorldRef = useRef<string | null>(null);
 
-  const { name: driver, forget: forgetDriver } = useDriver();
+  const { name: driver, setName: setDriverName, forget: forgetDriver } = useDriver();
   /* the platform this build is running on: CrazyGames, localhost, or nowhere */
   const cg = useCrazyGames();
   const publish = useMutation(api.multiplayer.publish);
@@ -1114,6 +1114,7 @@ export default function Drive() {
           hour={hour}
           onHour={chooseSky}
           driver={driver}
+          onName={setDriverName}
           platform={cg.user}
           onForgetDriver={forgetDriver}
           netOn={netOn}

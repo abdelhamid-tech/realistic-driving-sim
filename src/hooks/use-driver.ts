@@ -5,12 +5,14 @@
  * alive. Two things can fill the name in:
  *
  *   1. CrazyGames. When the player is logged in on the platform, their
- *      CrazyGames username *is* their name in the game and the entry screen is
- *      skipped entirely — that is the platform's account integration.
- *   2. Otherwise they type a pseudonym once. It is remembered through the
- *      CrazyGames data module on the platform (which syncs across a player's
- *      devices and backs guests up when they sign in) and through localStorage
- *      everywhere else.
+ *      CrazyGames username *is* their name in the game, together with the
+ *      avatar the platform gives us — that is the platform's account
+ *      integration, and it is why the game has no name form of its own.
+ *   2. Otherwise they type a pseudonym once, on the profile screen inside the
+ *      launch flow (never as a separate gate in front of the game). It is
+ *      remembered through the CrazyGames data module on the platform (which
+ *      syncs across a player's devices and backs guests up when they sign in)
+ *      and through localStorage everywhere else.
  *
  * Kept as an external store so every place that needs the name (the roster,
  * the garage) re-renders together when it changes.
@@ -35,6 +37,18 @@ export function cleanDriver(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, MAX);
+}
+
+/**
+ * A name for a player nobody ever asked: someone who arrived on an invite
+ * link, or on the instant-multiplayer path, where the flow jumps straight onto
+ * the road. They still need something for the roster and the name above their
+ * car, so they get a tag — and they can type their own later from the menu,
+ * which clears it.
+ */
+export function guestDriverName(): string {
+  const tag = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `DRIVER-${tag}`;
 }
 
 function snapshot(): string {

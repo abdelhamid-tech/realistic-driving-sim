@@ -32,6 +32,7 @@ import {
   getInviteParam, inviteLink as cgInviteLink, isInstantMultiplayer, showAuthPrompt, type CgUser,
 } from "@/lib/crazygames";
 import { useCrazyGames } from "@/hooks/use-crazygames";
+import { cleanDriver, guestDriverName } from "@/hooks/use-driver";
 import {
   ArrowLeft, ArrowRight, Check, Download, Link2, Loader2, LogIn, Plus, ShieldCheck, Users, Zap,
 } from "lucide-react";
@@ -152,6 +153,8 @@ export interface LaunchFlowProps {
 
   /* 04 online */
   driver: string;
+  /** the driver name, set from the platform account or typed on the profile screen */
+  onName: (raw: string, typed?: boolean) => void;
   platform: CgUser | null;
   onForgetDriver: () => void;
   netOn: boolean;
@@ -178,11 +181,12 @@ export function LaunchFlow(props: LaunchFlowProps) {
   const [step, setStep] = useState(0);
   const [roomDraft, setRoomDraft] = useState(props.room);
 
-  /* The account screen. It is asked once per identity — the answer is saved
-     through the platform's own data module — and the step is *derived* rather
-     than stored, so it is decided the moment the SDK answers and can never
-     flash in front of a player who does not need it. A player who arrived on an
-     invite, or from the multiplayer page, is skipped: that flow stays instant. */
+  /* The profile screen — the only place this game asks who is driving. It is
+     asked once per identity, with the answer saved through the platform's own
+     data module, and the step is *derived* rather than stored, so it is decided
+     the moment the SDK answers and can never flash in front of a player who
+     does not need it. A player who arrived on an invite, or from the
+     multiplayer page, is skipped: that flow stays instant. */
   const cg = useCrazyGames();
   const [accountDone, setAccountDone] = useState(false);
   /* Looking at this screen where the platform does not answer (the owner's own
@@ -193,14 +197,17 @@ export function LaunchFlow(props: LaunchFlowProps) {
     () => new URLSearchParams(window.location.search).has("account"),
     [],
   );
-  const accountApplies = useMemo(
-    () =>
-      previewAccount ||
-      (cg.ready &&
-        accountScreenApplies(cg.active, cg.accountsAvailable, cg.user) &&
-        needsAccountSetup(cg.user)),
-    [previewAccount, cg.ready, cg.active, cg.accountsAvailable, cg.user],
-  );
+  const accountApplies = useMemo(() => {
+    if (previewAccount) return true;
+    if (!cg.ready) return false;
+    /* No name yet — a guest, or a player off the platform. The profile screen
+       is where that name is collected now, so there is no second "who is
+       driving" form standing in front of the garage. */
+    if (!props.driver) return true;
+    return (
+      accountScreenApplies(cg.active, cg.accountsAvailable, cg.user) && needsAccountSetup(cg.user)
+    );
+  }, [previewAccount, cg.ready, cg.active, cg.accountsAvailable, cg.user, props.driver]);
   const arrivedByInvite = useMemo(
     () => (cg.ready ? isInstantMultiplayer() || Boolean(getInviteParam("room")) : false),
     [cg.ready],
@@ -222,8 +229,24 @@ export function LaunchFlow(props: LaunchFlowProps) {
     setRoomDraft(props.room);
   }, [props.room]);
 
+  /* A player who never sees the profile screen — an invite link, or the
+     instant-multiplayer path — still needs a name for the roster and the name
+     over the car: the platform's username, or a tag of our own. */
+  const { driver: driverName, onName } = props;
+  useEffect(() => {
+    if (!cg.ready || gate !== "skip" || driverName) return;
+    onName(cg.user ? cg.user.username : guestDriverName());
+  }, [cg.ready, cg.user, gate, driverName, onName]);
+
   const last = step === STEPS.length - 1;
   const next = () => (last ? props.onStart() : setStep((s) => Math.min(STEPS.length - 1, s + 1)));
+
+  /* "CHANGE" beside the name: the profile screen comes back so another name can
+     be typed, instead of the driver being left without one. */
+  const forgetName = () => {
+    setAccountDone(false);
+    props.onForgetDriver();
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -251,7 +274,17 @@ export function LaunchFlow(props: LaunchFlowProps) {
   }
 
   /* the door to the garage, or straight through it */
-  if (gate === "setup") return <AccountGate user={cg.user} onDone={() => setAccountDone(true)} />;
+  if (gate === "setup") {
+    return (
+      <AccountGate
+        user={cg.user}
+        name={props.driver}
+        canLogIn={cg.accountsAvailable}
+        onName={props.onName}
+        onDone={() => setAccountDone(true)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[8] overflow-hidden bg-carbon/94 text-chalk backdrop-blur-[3px]">
@@ -329,7 +362,7 @@ export function LaunchFlow(props: LaunchFlowProps) {
             ) : (
               <button
                 type="button"
-                onClick={props.onForgetDriver}
+                onClick={forgetName}
                 className="cursor-pointer border border-white/12 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
               >
                 CHANGE
@@ -945,21 +978,33 @@ function OnlineStep({
 /* ------------------------------------------------------------- the account */
 
 /**
- * THE ACCOUNT SCREEN — the platform's own "continue with CrazyGames" step, in
- * the game's clothes (clipped panels, signal orange, Rajdhani and IBM Plex
- * Mono), instead of the platform's own blue-page look.
+ * THE PROFILE SCREEN — who is driving, in the game's clothes (clipped panels,
+ * signal orange, Rajdhani and IBM Plex Mono) instead of the platform's own
+ * blue-page look.
  *
- * On CrazyGames the player is usually signed in already, so there is no form
- * here: the account is offered, what the save keeps is spelled out, the terms
- * are ticked once, and the road is one click away. A guest can carry straight
- * on with a pseudonym — nothing in this game is gated behind an account — and
- * either answer is remembered per identity through the platform data module,
- * so it is asked exactly once.
+ * It is the ONLY place the game asks that question. On CrazyGames the answer is
+ * already there: the account's username and avatar *are* the driver, so this
+ * panel shows them, spells out what the save keeps, takes the one terms tick
+ * and opens the road. A player without an account types a name in the same
+ * panel — the name the other drivers see beside the car — which is exactly what
+ * the old stand-alone entry screen asked for, minus the second screen.
+ *
+ * Either answer is remembered per identity through the platform data module, so
+ * it is asked once; a player arriving on an invite link skips it entirely.
  */
-function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void }) {
+function AccountGate({
+  user, name, canLogIn, onName, onDone,
+}: {
+  user: CgUser | null;
+  name: string;
+  canLogIn: boolean;
+  onName: (raw: string, typed?: boolean) => void;
+  onDone: () => void;
+}) {
   const [terms, setTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const [draft, setDraft] = useState(() => name || user?.username || "");
   const progress = useMemo(() => completion(), []);
   const profile = useMemo(() => loadProfile(), []);
 
@@ -970,6 +1015,26 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
     onDone();
   };
 
+  /* The platform account drives: its username goes on the road as it is, and
+     its avatar is the one shown beside the car. */
+  const driveWithAccount = () => {
+    if (!user) return;
+    onName(user.username);
+    choose(accountIdentity(user), false, true);
+  };
+
+  /* No account, or a guest: the typed name is the driver. */
+  const named = cleanDriver(draft).length >= 2;
+  const driveAsGuest = () => {
+    const clean = cleanDriver(draft);
+    if (clean.length < 2) {
+      setFailed("A DRIVER NAME NEEDS AT LEAST TWO CHARACTERS.");
+      return;
+    }
+    onName(clean, true);
+    choose(user ? accountIdentity(user) : "guest", true, terms);
+  };
+
   const signIn = async () => {
     setBusy(true);
     setFailed(null);
@@ -977,8 +1042,10 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
     setBusy(false);
     /* the button is only live once the terms are ticked, so a successful sign
        in is an accepted one */
-    if (next) choose(next.username, false, true);
-    else setFailed("THE CRAZYGAMES SIGN-IN WAS CLOSED. YOU CAN STILL PLAY AS A GUEST.");
+    if (next) {
+      onName(next.username);
+      choose(next.username, false, true);
+    } else setFailed("THE CRAZYGAMES SIGN-IN WAS CLOSED. YOU CAN STILL PLAY AS A GUEST.");
   };
 
   return (
@@ -1014,8 +1081,10 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
             LET&apos;S SET UP YOUR PROFILE
           </h1>
           <p className="mt-3 max-w-[58ch] text-sm leading-relaxed text-muted-foreground">
-            Your CrazyGames account is your driver here. Sign in and the name on the road, the car
-            you pick, its paint and everything you unlock follow you onto every device you play on.
+            Your CrazyGames account is your driver here — its username and avatar are what the other
+            drivers see beside your car, and signing in carries the car, its paint and everything you
+            unlock onto every device you play on. Without an account, the name you type below is the
+            one on the road.
           </p>
         </div>
 
@@ -1063,6 +1132,30 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
               <AccountStat label="PROGRESS" value={`${progress.percentage}%`} />
               <AccountStat label="SYNC" value={user ? "CLOUD" : "LOCAL"} />
             </div>
+
+            {!user ? (
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <label
+                  htmlFor="driver-name"
+                  className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground"
+                >
+                  WHO IS DRIVING — DRIVER NAME
+                </label>
+                <input
+                  id="driver-name"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value.slice(0, 16))}
+                  placeholder="FAST PHIL"
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="mt-2 w-full border border-white/12 bg-black/40 px-3 py-2.5 font-display text-lg font-bold tracking-wide text-chalk uppercase outline-none placeholder:text-muted-foreground/50 focus:border-signal/70"
+                />
+                <p className="mt-1.5 font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
+                  TWO CHARACTERS IS ENOUGH. NOTHING IS VERIFIED AND NO ACCOUNT IS NEEDED — THIS IS
+                  ONLY THE NAME THE OTHER DRIVERS READ.
+                </p>
+              </div>
+            ) : null}
           </section>
 
           <section className="border border-white/12 bg-black/45 p-4 sm:p-5">
@@ -1119,13 +1212,12 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
               <Button
                 size="lg"
                 disabled={!terms}
-                onClick={() => choose(accountIdentity(user), false, true)}
+                onClick={driveWithAccount}
                 className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]"
               >
                 <ShieldCheck className="size-4" /> CONTINUE AS {user.username.toUpperCase()}
-
               </Button>
-            ) : (
+            ) : canLogIn ? (
               <Button
                 size="lg"
                 disabled={!terms || busy}
@@ -1135,14 +1227,15 @@ function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
                 LOG IN WITH CRAZYGAMES
               </Button>
-            )}
+            ) : null}
             <Button
-              variant="outline"
               size="lg"
-              onClick={() => choose(user ? accountIdentity(user) : "guest", true, terms)}
+              variant={user ? "outline" : "default"}
+              disabled={!user && !named}
+              onClick={driveAsGuest}
               className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]"
             >
-              {user ? "SKIP FOR NOW" : "PLAY AS A GUEST"}
+              {user ? "SKIP FOR NOW" : "START DRIVING"}
             </Button>
             <span className="ml-auto font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
               NOTHING ABOUT THIS SHOWS ON YOUR CRAZYGAMES PROFILE — IT IS ONLY WHAT THE GAME KEEPS.
