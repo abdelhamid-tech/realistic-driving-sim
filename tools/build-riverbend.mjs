@@ -8,7 +8,9 @@
  * banks of a wide, meandering river:
  *
  *   · a wide, sinuous river cut through the middle, with landscaped banks
- *   · 5 unique bridges (arch, cable-stayed, girder, suspension, pontoon)
+ *   · 6 unique crossings (arch, cable-stayed, girder, suspension, pontoon,
+ *     bascule) — and the owner's own bridge model can take the place of one
+ *     of them, baked in as real geometry: see tools/bridge/README.md
  *   · downtown: towers toward the centre of each bank
  *   · residential quarters: small blocks, pitched roofs
  *   · an industrial zone: halls, silos, chimneys, tanks
@@ -22,9 +24,10 @@
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { geometryBuilder, writeGLB } from "./glb.mjs";
+import { BRIDGE_DIR, bridgeOptions, fitToCrossing, loadBridgeModel } from "./bridge.mjs";
 
 /* ------------------------------------------------------------------ palette */
-const MATERIALS = [
+const BASE_MATERIALS = [
   { name: "asphalt",  color: [0.12, 0.13, 0.15], rough: 0.95, uv: 14 }, // one road tile ≈ 14 m: two lanes + kerbs
   { name: "paint",    color: [0.86, 0.84, 0.76], rough: 0.7,  uv: 0 },  // no texture: paint stays flat
   { name: "concrete", color: [0.55, 0.53, 0.49], rough: 0.9,  uv: 4 },
@@ -45,6 +48,45 @@ const MATERIALS = [
   { name: "sigAmber", color: [0.45, 0.28, 0.03], rough: 0.5,  uv: 0, emissive: [0.9, 0.55, 0.04] },
   { name: "sigGreen", color: [0.04, 0.36, 0.10], rough: 0.5,  uv: 0, emissive: [0.05, 0.85, 0.16] },
 ];
+
+/* ------------------------------------------------------- the owner's bridge *
+ *  A model dropped in tools/bridge/ is baked into this map, in place of the
+ *  crossing it is fitted to. It is not a prop and it is not decoration: its
+ *  triangles join the city's own mesh, so its roadway becomes drivable ground
+ *  and its railings become walls, exactly like the bridges built below.
+ *
+ *  A model with no bridge.json is fitted as it stands — turned so its length
+ *  runs across the river, scaled once to span bank to bank, and dropped so its
+ *  roadway meets DECK_Y with every other bridge. With no model in the folder,
+ *  nothing here changes and the map builds exactly as before.
+ * -------------------------------------------------------------------------*/
+const bridgeOpts = bridgeOptions();
+const bridgeModel = await loadBridgeModel(BRIDGE_DIR, bridgeOpts);
+/** one material for the whole bridge, or the model's own colours */
+let bridgeMatFixed = -1;
+let bridgePalette = [];
+if (bridgeModel) {
+  const wanted = bridgeOpts.material
+    ? BASE_MATERIALS.findIndex((m) => m.name === bridgeOpts.material)
+    : -1;
+  if (wanted >= 0) {
+    bridgeMatFixed = wanted;
+  } else {
+    if (bridgeOpts.material) {
+      console.warn(`  ! bridge.json asks for material "${bridgeOpts.material}", which the map has not got — keeping the model's own colours`);
+    }
+    /* the palette is the city's, textures and all, so a bridge keeps its
+       colours but carries no image of its own (uv 0 writes no UVs at all) */
+    bridgePalette = bridgeModel.materials.map((m) => ({ ...m, uv: 0 }));
+  }
+}
+
+/** the city's palette, plus whatever colours the owner's bridge arrived in */
+const MATERIALS = [...BASE_MATERIALS, ...bridgePalette];
+/** where the bridge's own materials start in that list */
+const BRIDGE_PALETTE = BASE_MATERIALS.length;
+/** the material index to draw one triangle of the owner's bridge with */
+const bridgeMat = (index) => (bridgeMatFixed >= 0 ? bridgeMatFixed : BRIDGE_PALETTE + index);
 const M = Object.fromEntries(MATERIALS.map((m, i) => [m.name, i]));
 
 const G = geometryBuilder(MATERIALS);
@@ -101,6 +143,35 @@ const BRIDGES = [
 ];
 const DECK_Y = 9;              // bridge deck height over the water
 const DECK_T = 1.2;            // deck slab thickness
+/* The owner's bridge is cut off at the riverbed instead of running through it.
+   A pier modelled twenty metres into the mud is never seen — the bed is opaque
+   — and left in it would drag the map's own origin (and every prop, spawn and
+   height in the city) down to the end of the deepest pier, for nothing. The cut
+   is at the bed, which is above the lowest thing the city already has, so the
+   map's own bounds do not move at all. */
+const BRIDGE_FLOOR = WATER_Y - 3.5;
+
+/**
+ * Which crossings the owner's bridge takes over: an x from the list above, a
+ * list of them, "all", or — with nothing said — the middle crossing, the one
+ * every drive through downtown crosses.
+ */
+function crossingsFor(opts) {
+  const want = opts.crossing;
+  if (want === undefined || want === null) return new Set([0]);
+  if (want === "all") return new Set(BRIDGES.map((b) => b.x));
+  const found = new Set();
+  for (const x of Array.isArray(want) ? want : [want]) {
+    const hit = BRIDGES.find((b) => Math.abs(b.x - x) < 1);
+    if (hit) found.add(hit.x);
+    else console.warn(`  ! no crossing at x=${x} — the map's crossings are ${BRIDGES.map((b) => b.x).join(", ")}`);
+  }
+  return found;
+}
+
+const BRIDGE_CROSSINGS = bridgeModel ? crossingsFor(bridgeOpts) : new Set();
+/** what each crossing the bridge took over turned into */
+const bridgeFits = [];
 
 /** A road deck from x0 to x1 at height y, with kerbs, over whatever is below */
 function deck(x0, x1, half, y, mat = M.asphalt) {
@@ -123,7 +194,10 @@ function buildBridges() {
     const bankA = zc0 - riverHalf(x0) - BANK - 4;
     const bankB = zc1 + riverHalf(x1) + BANK + 4;
     const za = Math.min(bankA, bankB), zb = Math.max(bankA, bankB);
-    deck(x0, x1, b.half, DECK_Y);
+    const custom = BRIDGE_CROSSINGS.has(b.x);
+    /* the owner's bridge is the crossing: its own deck and structure stand in
+       for the ones built here, and the approaches still climb to meet it */
+    if (!custom) deck(x0, x1, b.half, DECK_Y);
 
     /* approaches: ramps up from street level on each side */
     const rampLen = 90;
@@ -142,13 +216,35 @@ function buildBridges() {
     slope(zb, zb + rampLen, DECK_Y, 0.1);
 
     /* piers down to the riverbed on each bank edge */
-    for (const z of [za - 10, zb + 10]) {
-      G.box(x0 + 2, WATER_Y - 4, z - 2, x0 + 6, DECK_Y - DECK_T, z + 2, M.concrete);
-      G.box(x1 - 6, WATER_Y - 4, z - 2, x1 - 2, DECK_Y - DECK_T, z + 2, M.concrete);
+    if (!custom) {
+      for (const z of [za - 10, zb + 10]) {
+        G.box(x0 + 2, WATER_Y - 4, z - 2, x0 + 6, DECK_Y - DECK_T, z + 2, M.concrete);
+        G.box(x1 - 6, WATER_Y - 4, z - 2, x1 - 2, DECK_Y - DECK_T, z + 2, M.concrete);
+      }
     }
 
     /* the structure that makes it unique */
-    if (b.kind === "arch") {
+    if (custom) {
+      /* the owner's own bridge, measured, turned and fitted to this crossing */
+      const zc = (zc0 + zc1) / 2;
+      const halfWater = riverHalf(b.x);
+      const { tris, report } = fitToCrossing(
+        bridgeModel,
+        {
+          x: b.x,
+          half: b.half,
+          z0: za,
+          z1: zb,
+          water: [zc - halfWater, zc + halfWater],
+          deckY: DECK_Y,
+          /* below this it is mud, and it is cut off there */
+          floor: BRIDGE_FLOOR,
+        },
+        bridgeOpts,
+      );
+      for (const t of tris) G.tri(t.a, t.b, t.c, bridgeMat(t.mat), t.n);
+      bridgeFits.push(report);
+    } else if (b.kind === "arch") {
       /* a steel arch over the deck, with hangers */
       const steps = 36;
       for (let i = 0; i <= steps; i++) {
@@ -643,6 +739,27 @@ for (const z of [AVE[0], AVE[AVE.length - 1]]) {
   for (let x = -R + 30; x < R - 30; x += 80) {
     if (inRiver(x, z)) continue;
     lamp(x, z + AVE_HALF + 1.5, 0);
+  }
+}
+
+/* ------------------------------------------------------------- what it became */
+if (bridgeModel) {
+  const took = bridgeFits.length
+    ? `took over ${bridgeFits.length === 1 ? "the crossing" : "the crossings"} at x = ${bridgeFits.map((f) => f.x).join(", ")}`
+    : "took over nothing: bridge.json names no crossing this map has";
+  console.log(
+    `your bridge (tools/bridge/${bridgeModel.short}) — ${bridgeModel.triangles.toLocaleString()} triangles, ` +
+      `${bridgeModel.materials.length} material${bridgeModel.materials.length === 1 ? "" : "s"}, ` +
+      `as modelled ${bridgeModel.size.map((s) => s.toFixed(1)).join(" × ")} m, roadway at ${(bridgeModel.deck.fraction * 100).toFixed(0)}% of its height — ${took}`,
+  );
+  for (const f of bridgeFits) {
+    console.log(
+      `  · x = ${f.x}: turned ${f.turned}°, scaled ×${f.scale.toFixed(2)}, ` +
+        `${f.span.toFixed(0)} m across × ${f.width.toFixed(0)} m wide × ${f.height.toFixed(0)} m tall, roadway on deck ${f.deckFraction}, ` +
+        `${f.baked.toLocaleString()} triangles baked` +
+        (f.cut || f.trimmed ? `, ${f.cut} cut away below the riverbed, ${f.trimmed} trimmed at it` : ""),
+    );
+    for (const w of f.warnings) console.log(`    ! ${w}`);
   }
 }
 
