@@ -8,28 +8,31 @@
  * next visit.
  */
 import { PAINT_COLORS } from "@/game/vehicles";
+import { cgGet } from "@/lib/crazygames";
+import { loadProfile, saveProfile } from "@/game/profile";
 
+/** The key the colour used to live under on its own, before the profile. */
 export const PAINT_STORE_KEY = "riverbend.paint";
 
 export function hexOf(hex: number) {
   return "#" + (hex & 0xffffff).toString(16).padStart(6, "0");
 }
 
+/**
+ * The colour is part of the player profile (see @/game/profile), which is saved
+ * through the CrazyGames data module — so on the platform it follows the
+ * account instead of the browser. The old standalone key is still read once, so
+ * a player who painted their car before the profile existed keeps their paint.
+ */
 export function readSavedPaint(fallback: number) {
-  try {
-    const raw = Number(window.localStorage.getItem(PAINT_STORE_KEY));
-    return Number.isFinite(raw) && raw > 0 ? raw & 0xffffff : fallback;
-  } catch {
-    return fallback;
-  }
+  const fromProfile = loadProfile().paint;
+  if (fromProfile > 0) return fromProfile & 0xffffff;
+  const legacy = Number(cgGet(PAINT_STORE_KEY));
+  return Number.isFinite(legacy) && legacy > 0 ? legacy & 0xffffff : fallback;
 }
 
 export function savePaint(hex: number) {
-  try {
-    window.localStorage.setItem(PAINT_STORE_KEY, String(hex & 0xffffff));
-  } catch {
-    /* a browser with storage switched off still gets to choose a colour */
-  }
+  saveProfile({ paint: hex & 0xffffff });
 }
 
 export function PaintPicker({

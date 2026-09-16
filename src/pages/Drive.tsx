@@ -27,11 +27,13 @@ import {
   getInviteParam,
   happyTime,
   hasAdblock,
+  hideInviteButton,
   isInstantMultiplayer,
   leftRoom,
   loadingStart,
   loadingStop,
   onJoinRoom,
+  showInviteButton,
   whenReady,
   reportProgress,
   requestMidgameAd,
@@ -40,6 +42,8 @@ import {
   showBanner,
   updateRoom,
 } from "@/lib/crazygames";
+import { lobbyFull } from "@/game/lobby";
+import { loadProfile, saveProfile } from "@/game/profile";
 import {
   PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
@@ -134,7 +138,10 @@ export default function Drive() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [carId, setCarId] = useState(DEFAULT_CAR_ID);
+  /* The player's own setup is read back from the save before the first frame:
+     the platform data module on CrazyGames (so it follows the account across
+     devices), localStorage everywhere else — see @/game/profile. */
+  const [carId, setCarId] = useState(() => loadProfile().car || DEFAULT_CAR_ID);
   const [equipping, setEquipping] = useState<string | null>(null);
   /* what actually happened to the chosen model: the difference between "the
      car is selected" and "the car is on the road" used to be a toast nobody
@@ -142,14 +149,16 @@ export default function Drive() {
   const [modelState, setModelState] = useState<ModelState | null>(null);
   /* the paint is the player's own, and it is remembered for the next visit */
   const [paint, setPaint] = useState<number>(() => readSavedPaint(PAINT_COLORS[4]));
-  const [hour, setHour] = useState(16.2);
-  const [camera, setCamera] = useState(0);
-  const [volume, setVolume] = useState(0.5);
+  const [hour, setHour] = useState(() => loadProfile().hour);
+  const [camera, setCamera] = useState(() => loadProfile().camera);
+  const [volume, setVolume] = useState(() => loadProfile().volume);
   const [headlights, setHeadlights] = useState(false);
 
   const [room, setRoom] = useState(readRoom);
   const [roomDraft, setRoomDraft] = useState(readRoom);
-  const [netOn, setNetOn] = useState(true);
+  const [netOn, setNetOn] = useState(() => loadProfile().net);
+  /* one shout, not eight a second, when the relay refuses a position */
+  const fullRef = useRef(false);
   const [netState, setNetState] = useState<"idle" | "connecting" | "live" | "error">("idle");
   /* what the relay actually said when it refused a position, so a failure is
      readable instead of a bare "RETRYING" */
@@ -488,6 +497,7 @@ export default function Drive() {
     }
     setNetState("connecting");
     setNetError(null);
+    fullRef.current = false;
     let beat = 0;
     const tick = () => {
       const game = gameRef.current;
@@ -527,7 +537,14 @@ export default function Drive() {
           setNetState("error");
           /* the reason, verbatim: a bare "RETRYING" tells the driver nothing,
              and this is the one place the server's own words can be read */
-          setNetError(err instanceof Error ? err.message : String(err));
+          const message = err instanceof Error ? err.message : String(err);
+          setNetError(message);
+          /* a lobby at its submitted maximum is not a network problem, and the
+             driver should be told once rather than every eighth of a second */
+          if (message.toLowerCase().includes("full") && !fullRef.current) {
+            fullRef.current = true;
+            toast.error("Room full", { description: message });
+          }
         });
     };
     tick();
@@ -657,6 +674,20 @@ export default function Drive() {
     return () => leftRoom();
   }, [booted, netOn, room]);
 
+  /* The invite button, kept honest with the room data above: offered while the
+     room is open, taken away the moment it is full or the player goes solo. It
+     is deprecated in favour of the room data (which is why the room is always
+     reported), so it is used where the host still has it and skipped where it
+     does not. */
+  useEffect(() => {
+    if (!booted || !netOn || lobbyFull(1 + otherDrivers.length)) {
+      hideInviteButton();
+      return;
+    }
+    showInviteButton({ room });
+    return () => hideInviteButton();
+  }, [booted, netOn, room, otherDrivers.length]);
+
   /* An invitation carries the room code. Off-platform that is the
      /drive?room=CODE link; on CrazyGames it arrives as an invite param. */
   useEffect(() => {
@@ -667,6 +698,9 @@ export default function Drive() {
     setRoom(next);
     setRoomDraft(next);
     setRoomInUrl(next);
+    /* an invitation is a multiplayer invitation, whatever the player's last
+       run was set to */
+    setNetOn(true);
   }, [cg.ready]);
 
   /* A friend joining while the player is already in the game must not need a
@@ -691,6 +725,13 @@ export default function Drive() {
     if (!booted || !cg.ready || instantRef.current) return;
     if (!isInstantMultiplayer()) return;
     instantRef.current = true;
+    /* Launched to *join* somebody: their invite wins over opening a brand new
+       room beside it, and the party goes straight onto the road. */
+    if (getInviteParam("room")) {
+      setNetOn(true);
+      start();
+      return;
+    }
     const code = makeCode();
     setRoom(code);
     setRoomDraft(code);
@@ -717,6 +758,13 @@ export default function Drive() {
     if (!booted || !started) return;
     if (markCarDriven(entry.id)) reportProgress(completion().percentage);
   }, [booted, started, entry]);
+
+  /* The rest of the setup goes to the same save as the paint and the progress,
+     so the next visit opens on the same car, at the same hour, at the same
+     volume — on any device the player signs in on. */
+  useEffect(() => {
+    saveProfile({ car: carId, hour, camera, volume, net: netOn });
+  }, [carId, hour, camera, volume, netOn]);
 
   /* so a bug report from the platform's feedback form can be reproduced */
   useEffect(() => {

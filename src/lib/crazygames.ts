@@ -18,7 +18,12 @@
  *
  *  Progress note: on CrazyGames the `data` module replaces localStorage
  *  entirely (see cgGet/cgSet) — that is a hard platform requirement, and it is
- *  also how a player's name and tuning follow them between devices.
+ *  also how a player's name, car, paint and progress follow them between
+ *  devices (see src/game/profile.ts and src/game/progress.ts).
+ *
+ *  Account note: a logged-in CrazyGames player *is* the driver — the platform
+ *  username is the name on the road, the account screen offers to bring the
+ *  save onto that account, and guests keep playing with a pseudonym.
  * ==========================================================================*/
 
 /* --------------------------------------------------------------- the shapes */
@@ -87,7 +92,11 @@ interface CgModule {
     updateRoom(room: CgRoom): void;
     leftRoom(): void;
     addJoinRoomListener(listener: (room: CgRoom) => void): void;
-    inviteLink(params: Record<string, string>): Promise<string>;
+    /** HTML5 answers with a string; some engine builds wrap it in a promise */
+    inviteLink(params: Record<string, string>): Promise<string> | string;
+    /** deprecated in favour of the room data above, and still supported */
+    showInviteButton?(params: Record<string, string>): string;
+    hideInviteButton?(): void;
     getInviteParam(key: string): string | null;
     inviteParams: Record<string, string> | null;
   };
@@ -377,6 +386,65 @@ export function getInviteParam(key: string): string | null {
 
 /** True when the game was launched from the CrazyGames multiplayer page. */
 export const isInstantMultiplayer = () => Boolean(safe("isInstantMultiplayer", () => sdk()?.game.isInstantMultiplayer, false));
+
+/** All the parameters the game was started with, or null when it was not
+ *  started from an invite at all. */
+export function inviteParams(): Record<string, string> | null {
+  const s = sdk();
+  if (!s) return null;
+  return safe("inviteParams", () => s.game.inviteParams ?? null, null);
+}
+
+/* ---------------------------------------------------------------- invite link
+ *  The platform's own invite link. It opens this game for a friend and carries
+ *  the parameters that put them in the same room; the lobby's copy button uses
+ *  it on CrazyGames and falls back to the game's own /drive?room=CODE link
+ *  everywhere else (null means "not available here").
+ * --------------------------------------------------------------------------*/
+export async function inviteLink(params: Record<string, string>): Promise<string | null> {
+  const s = sdk();
+  if (!s) return null;
+  try {
+    /* HTML5 returns the link itself; other builds hand back a promise */
+    const link = await Promise.resolve(s.game.inviteLink(params));
+    return typeof link === "string" && link.length > 0 ? link : null;
+  } catch (error) {
+    warn("inviteLink", error);
+    return null;
+  }
+}
+
+/**
+ * The platform's own invite button, offered while the player is sitting in a
+ * joinable room. Deprecated in favour of the room data (which is why the room
+ * is always reported), but still supported — so it is used where the host has
+ * it and silently skipped where it does not.
+ */
+export function showInviteButton(params: Record<string, string>): string | null {
+  const s = sdk();
+  const button = s?.game?.showInviteButton;
+  if (!s || !button) return null;
+  return safe("showInviteButton", () => button.call(s.game, params) ?? null, null);
+}
+
+/** Hide it again: once the lobby closes, the player must stop being invited. */
+export function hideInviteButton() {
+  const s = sdk();
+  const button = s?.game?.hideInviteButton;
+  if (!s || !button) return;
+  safe("hideInviteButton", () => button.call(s.game), undefined);
+}
+
+/* ------------------------------------------------------------------- account
+ *  The platform account system: the popup does the whole sign-up and login,
+ *  and comes back with the user the game then adopts. Only offered where the
+ *  account system really is reachable — a third-party embed has none.
+ * -------------------------------------------------------------------------*/
+export async function showAuthPrompt(): Promise<CgUser | null> {
+  const s = sdk();
+  if (!s || !state.accountsAvailable) return null;
+  return safeAsync("showAuthPrompt", () => s.user.showAuthPrompt(), null);
+}
 
 /* -------------------------------------------------------------------- ads */
 

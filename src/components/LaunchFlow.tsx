@@ -22,9 +22,18 @@ import { PaintPicker } from "@/components/PaintPicker";
 import { carKind, formatBytes, type CarEntry } from "@/game/carmodels";
 import type { VehicleSpec } from "@/game/vehicles";
 import type { WorldMapSource } from "@/game/worldmaps";
-import type { CgUser } from "@/lib/crazygames";
+import { LOBBY_MAX, lobbyFull, lobbyLabel } from "@/game/lobby";
+import { loadProfile } from "@/game/profile";
+import { completion } from "@/game/progress";
 import {
-  ArrowLeft, ArrowRight, Check, Download, Link2, Loader2, Plus, Users, Zap,
+  accountIdentity, accountScreenApplies, needsAccountSetup, saveChoice,
+} from "@/lib/account";
+import {
+  getInviteParam, inviteLink as cgInviteLink, isInstantMultiplayer, showAuthPrompt, type CgUser,
+} from "@/lib/crazygames";
+import { useCrazyGames } from "@/hooks/use-crazygames";
+import {
+  ArrowLeft, ArrowRight, Check, Download, Link2, Loader2, LogIn, Plus, ShieldCheck, Users, Zap,
 } from "lucide-react";
 
 const STEPS = [
@@ -169,6 +178,39 @@ export function LaunchFlow(props: LaunchFlowProps) {
   const [step, setStep] = useState(0);
   const [roomDraft, setRoomDraft] = useState(props.room);
 
+  /* The account screen. It is asked once per identity — the answer is saved
+     through the platform's own data module — and the step is *derived* rather
+     than stored, so it is decided the moment the SDK answers and can never
+     flash in front of a player who does not need it. A player who arrived on an
+     invite, or from the multiplayer page, is skipped: that flow stays instant. */
+  const cg = useCrazyGames();
+  const [accountDone, setAccountDone] = useState(false);
+  /* Looking at this screen where the platform does not answer (the owner's own
+     domain, a preview build) is what ?account=1 is for: it shows the step as
+     CrazyGames shows it, with the local SDK's simulated player when there is
+     one, and is otherwise ignored. */
+  const previewAccount = useMemo(
+    () => new URLSearchParams(window.location.search).has("account"),
+    [],
+  );
+  const accountApplies = useMemo(
+    () =>
+      previewAccount ||
+      (cg.ready &&
+        accountScreenApplies(cg.active, cg.accountsAvailable, cg.user) &&
+        needsAccountSetup(cg.user)),
+    [previewAccount, cg.ready, cg.active, cg.accountsAvailable, cg.user],
+  );
+  const arrivedByInvite = useMemo(
+    () => (cg.ready ? isInstantMultiplayer() || Boolean(getInviteParam("room")) : false),
+    [cg.ready],
+  );
+  const gate: "wait" | "setup" | "skip" = !cg.ready && !previewAccount
+    ? "wait"
+    : accountDone || arrivedByInvite || !accountApplies
+      ? "skip"
+      : "setup";
+
   /* the loading screen holds for a beat at 100% so it is read, not glimpsed */
   useEffect(() => {
     if (!props.ready) return;
@@ -198,9 +240,18 @@ export function LaunchFlow(props: LaunchFlowProps) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (phase === "loading") {
-    return <LaunchSplash progress={props.progress} note={props.note} checks={props.checks} />;
+  if (phase === "loading" || gate === "wait") {
+    return (
+      <LaunchSplash
+        progress={phase === "loading" ? props.progress : 1}
+        note={phase === "loading" ? props.note : "reading your crazygames account"}
+        checks={props.checks}
+      />
+    );
   }
+
+  /* the door to the garage, or straight through it */
+  if (gate === "setup") return <AccountGate user={cg.user} onDone={() => setAccountDone(true)} />;
 
   return (
     <div className="fixed inset-0 z-[8] overflow-hidden bg-carbon/94 text-chalk backdrop-blur-[3px]">
@@ -323,7 +374,7 @@ export function LaunchFlow(props: LaunchFlowProps) {
                 : step === 2
                   ? "THE CITY LIGHTS UP WHATEVER HOUR YOU SET"
                   : props.netOn
-                    ? "TYPE A ROOM CODE TO JOIN, OR MAKE ONE TO INVITE"
+                    ? `TYPE A ROOM CODE TO JOIN, OR MAKE ONE · UP TO ${LOBBY_MAX} DRIVERS`
                     : "SOLO IS PRIVATE — NOBODY ELSE IS PUT IN YOUR WORLD"}
           </span>
 
@@ -697,14 +748,33 @@ function TimeStep({ hour, onHour }: LaunchFlowProps) {
 /* -------------------------------------------------------------- 04 the online */
 
 function OnlineStep({
-  netOn, onNet, room, peers, netState, netError, onJoinRoom, onCreateRoom, inviteLink,
-  roomDraft, onRoomDraft,
+  netOn, onNet, room, peers, netState, netError, onJoinRoom, onCreateRoom,
+  inviteLink: pageLink, roomDraft, onRoomDraft,
 }: LaunchFlowProps & { roomDraft: string; onRoomDraft: (v: string) => void }) {
   const [copied, setCopied] = useState(false);
+  /* On CrazyGames the invite is the platform's own link: it opens the game for
+     the friend and carries the room with it. Off-platform inviteLink() answers
+     null and the game's own /drive?room=CODE link is used instead. */
+  const [platformLink, setPlatformLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!netOn) return;
+    let live = true;
+    void cgInviteLink({ room }).then((link) => {
+      if (live) setPlatformLink(link);
+    });
+    return () => {
+      live = false;
+    };
+  }, [netOn, room]);
+
+  const share = platformLink ?? pageLink;
+  const players = 1 + peers.length;
+  const full = lobbyFull(players);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(inviteLink);
+      await navigator.clipboard.writeText(share);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -779,9 +849,22 @@ function OnlineStep({
                 {room.toUpperCase()}
               </span>
             </div>
+
+            {/* the exact link the button hands out: the platform's own invite
+                on CrazyGames, the game's own link everywhere else */}
+            <button
+              type="button"
+              onClick={() => void copy()}
+              title={share}
+              className="mt-2 w-full cursor-pointer truncate border border-white/10 bg-black/30 px-2 py-1.5 text-left font-mono text-[9px] tracking-[0.1em] text-muted-foreground transition-colors hover:border-signal/50 hover:text-chalk"
+            >
+              {platformLink ? "CRAZYGAMES INVITE · " : "GAME LINK · "}
+              {share}
+            </button>
             <p className="mt-2 font-mono text-[9px] leading-relaxed tracking-[0.12em] text-muted-foreground">
-              ANYONE WHO OPENS THE INVITE LINK LANDS IN THE SAME ROOM. POSITIONS GO OUT ABOUT EIGHT
-              TIMES A SECOND.
+              ANYONE WHO OPENS THE INVITE LINK LANDS IN THE SAME ROOM — FRIENDS LIST INCLUDED WHEN
+              YOU ARE SIGNED IN ON CRAZYGAMES. POSITIONS GO OUT ABOUT EIGHT TIMES A SECOND. A ROOM
+              TAKES UP TO {LOBBY_MAX} DRIVERS.
             </p>
           </div>
 
@@ -789,8 +872,17 @@ function OnlineStep({
             <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">
               <Users className="size-3.5 text-signal" />
               <span className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground">
-                {room.toUpperCase()} / {1 + peers.length} ONLINE
+                {room.toUpperCase()} / {lobbyLabel(players)} ONLINE
               </span>
+              {full ? (
+                <span className="border border-signal/60 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-signal">
+                  FULL
+                </span>
+              ) : (
+                <span className="font-mono text-[9px] tracking-[0.16em] text-muted-foreground/70">
+                  {LOBBY_MAX - players} SEAT{LOBBY_MAX - players === 1 ? "" : "S"} LEFT
+                </span>
+              )}
               <span
                 className={
                   "ml-auto font-mono text-[10px] tracking-[0.14em] " +
@@ -846,6 +938,233 @@ function OnlineStep({
           AT THE LIGHTS, FROM THE SETTINGS PANEL.
         </div>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- the account */
+
+/**
+ * THE ACCOUNT SCREEN — the platform's own "continue with CrazyGames" step, in
+ * the game's clothes (clipped panels, signal orange, Rajdhani and IBM Plex
+ * Mono), instead of the platform's own blue-page look.
+ *
+ * On CrazyGames the player is usually signed in already, so there is no form
+ * here: the account is offered, what the save keeps is spelled out, the terms
+ * are ticked once, and the road is one click away. A guest can carry straight
+ * on with a pseudonym — nothing in this game is gated behind an account — and
+ * either answer is remembered per identity through the platform data module,
+ * so it is asked exactly once.
+ */
+function AccountGate({ user, onDone }: { user: CgUser | null; onDone: () => void }) {
+  const [terms, setTerms] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const progress = useMemo(() => completion(), []);
+  const profile = useMemo(() => loadProfile(), []);
+
+  /* The answer is saved either way, so the screen is asked exactly once for
+     this identity; `terms` only records whether the box was actually ticked. */
+  const choose = (id: string, guest: boolean, accepted: boolean) => {
+    saveChoice({ id, guest, terms: accepted, answered: true, at: Date.now() });
+    onDone();
+  };
+
+  const signIn = async () => {
+    setBusy(true);
+    setFailed(null);
+    const next = await showAuthPrompt();
+    setBusy(false);
+    /* the button is only live once the terms are ticked, so a successful sign
+       in is an accepted one */
+    if (next) choose(next.username, false, true);
+    else setFailed("THE CRAZYGAMES SIGN-IN WAS CLOSED. YOU CAN STILL PLAY AS A GUEST.");
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9] overflow-y-auto bg-carbon text-chalk">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 62% 46% at 50% 0%, rgba(255,106,42,.15), transparent 64%), radial-gradient(ellipse 58% 48% at 84% 104%, rgba(56,120,190,.15), transparent 70%)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden
+        style={{
+          opacity: 0.05,
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
+          backgroundSize: "56px 56px",
+        }}
+      />
+
+      <div className="safe-inset relative mx-auto flex min-h-full w-[min(95vw,1000px)] flex-col justify-center gap-5 px-4 py-8 sm:px-8">
+        <header className="flex items-center justify-between gap-4">
+          <GameLogo width={128} glow={false} />
+          <span className="font-mono text-[9px] tracking-[0.3em] text-muted-foreground">
+            STEP 00 · DRIVER PROFILE
+          </span>
+        </header>
+
+        <div>
+          <h1 className="font-display text-3xl leading-none font-bold tracking-tight sm:text-5xl">
+            LET&apos;S SET UP YOUR PROFILE
+          </h1>
+          <p className="mt-3 max-w-[58ch] text-sm leading-relaxed text-muted-foreground">
+            Your CrazyGames account is your driver here. Sign in and the name on the road, the car
+            you pick, its paint and everything you unlock follow you onto every device you play on.
+          </p>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+          <section className="border border-white/12 bg-black/45 p-4 sm:p-5">
+            <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+              {user ? "CONTINUE WITH CRAZYGAMES AS" : "CRAZYGAMES ACCOUNT"}
+            </div>
+
+            <div className="mt-3 flex items-center gap-3">
+              {user?.profilePictureUrl ? (
+                <img
+                  src={user.profilePictureUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="size-12 shrink-0 border border-white/15 object-cover"
+                />
+              ) : (
+                <span className="flex size-12 shrink-0 items-center justify-center border border-white/12 bg-white/4 text-muted-foreground">
+                  {user ? <ShieldCheck className="size-5" /> : <LogIn className="size-5" />}
+                </span>
+              )}
+              <div className="min-w-0">
+                <div className="truncate font-display text-2xl leading-none font-bold tracking-tight sm:text-3xl">
+                  {user ? user.username.toUpperCase() : "NOT SIGNED IN"}
+                </div>
+                <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.16em]">
+                  {user ? (
+                    <>
+                      <span className="size-1.5 bg-emerald-400" />
+                      <span className="text-emerald-400">ACCOUNT READY — SAVES SYNC</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      SIGN IN TO KEEP YOUR SETUP, OR CARRY ON AS A GUEST
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/10 pt-3 sm:grid-cols-4">
+              <AccountStat label="KEPT IN" value={user ? "ACCOUNT" : "THIS BROWSER"} />
+              <AccountStat label="CAR" value={profile.car ? profile.car.slice(0, 12).toUpperCase() : "DEFAULT"} />
+              <AccountStat label="PROGRESS" value={`${progress.percentage}%`} />
+              <AccountStat label="SYNC" value={user ? "CLOUD" : "LOCAL"} />
+            </div>
+          </section>
+
+          <section className="border border-white/12 bg-black/45 p-4 sm:p-5">
+            <div className="font-mono text-[9px] tracking-[0.28em] text-muted-foreground">
+              WHAT IS KEPT
+            </div>
+            <ul className="mt-3 space-y-2 font-mono text-[10px] leading-relaxed tracking-[0.1em] text-chalk/75">
+              <li>· YOUR NAME AND AVATAR, SHOWN BESIDE YOUR CAR TO EVERY DRIVER IN THE ROOM</li>
+              <li>· THE CAR YOU LAST DROVE, ITS PAINT AND THE HOUR YOU LEFT THE CITY AT</li>
+              <li>
+                · PROGRESS — {progress.cars} OF {progress.carsTotal} CARS DRIVEN, {progress.worlds} OF{" "}
+                {progress.worldsTotal} WORLDS OPENED
+              </li>
+              <li>· CAMERA, VOLUME AND WHETHER YOU DRIVE ONLINE</li>
+            </ul>
+            <p className="mt-3 border-t border-white/10 pt-3 font-mono text-[9px] leading-relaxed tracking-[0.12em] text-muted-foreground">
+              SAVED THROUGH THE CRAZYGAMES DATA MODULE, SO IT FOLLOWS THE ACCOUNT RATHER THAN THE
+              MACHINE. NO EMAIL, NO PASSWORD AND NO SIGN-UP FORM INSIDE THE GAME.
+            </p>
+          </section>
+        </div>
+
+        <div className="border border-white/12 bg-black/45 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={terms}
+              aria-label="Accept the CrazyGames terms and conditions"
+              onClick={() => setTerms((v) => !v)}
+              className={
+                "mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center border " +
+                (terms ? "border-signal bg-signal text-carbon" : "border-white/25 text-transparent")
+              }
+            >
+              <Check className="size-3" />
+            </button>
+            <p className="font-mono text-[10px] leading-relaxed tracking-[0.14em] text-muted-foreground">
+              I AGREE TO THE{" "}
+              <a
+                href="https://www.crazygames.com/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="text-signal underline decoration-signal/40 hover:decoration-signal"
+              >
+                CRAZYGAMES TERMS &amp; CONDITIONS
+              </a>{" "}
+              AND TO THE RULES OF THE GAME. IT IS THE ONE TICK THIS GAME ASKS FOR.
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {user ? (
+              <Button
+                size="lg"
+                disabled={!terms}
+                onClick={() => choose(accountIdentity(user), false, true)}
+                className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]"
+              >
+                <ShieldCheck className="size-4" /> CONTINUE AS {user.username.toUpperCase()}
+
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                disabled={!terms || busy}
+                onClick={() => void signIn()}
+                className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]"
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
+                LOG IN WITH CRAZYGAMES
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => choose(user ? accountIdentity(user) : "guest", true, terms)}
+              className="cursor-pointer gap-2 font-mono text-[11px] tracking-[0.2em]"
+            >
+              {user ? "SKIP FOR NOW" : "PLAY AS A GUEST"}
+            </Button>
+            <span className="ml-auto font-mono text-[9px] leading-relaxed tracking-[0.14em] text-muted-foreground">
+              NOTHING ABOUT THIS SHOWS ON YOUR CRAZYGAMES PROFILE — IT IS ONLY WHAT THE GAME KEEPS.
+            </span>
+          </div>
+
+          {failed ? (
+            <p className="mt-3 border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10px] leading-relaxed text-destructive">
+              {failed}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccountStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="font-mono text-[9px] tracking-[0.22em] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate font-mono text-[11px] tracking-[0.1em] text-chalk">{value}</div>
     </div>
   );
 }

@@ -21,8 +21,11 @@ import {
   gameplayStop,
   getInviteParam,
   hasAdblock,
+  hideInviteButton,
   isInstantMultiplayer,
   initCrazyGames,
+  inviteLink,
+  inviteParams,
   leftRoom,
   loadingStart,
   loadingStop,
@@ -31,13 +34,18 @@ import {
   requestMidgameAd,
   requestRewardedAd,
   setGameContext,
+  showAuthPrompt,
   showBanner,
+  showInviteButton,
   updateRoom,
   happyTime,
   cgGet,
   cgSet,
   cgRemove,
 } from "../lib/crazygames";
+import { needsAccountSetup, saveChoice } from "../lib/account";
+import { DEFAULT_PROFILE, loadProfile, saveProfile } from "../game/profile";
+import { LOBBY_MAX, lobbyFull, lobbyFullMessage } from "../game/lobby";
 
 type Scenario = "crazygames" | "local" | "disabled" | "hostile";
 
@@ -141,6 +149,11 @@ const gameModule = {
   inviteLink: async () => "https://www.crazygames.com/game/x?room=ZZ",
   getInviteParam: (k: string) => (k === "room" ? "invited-room" : null),
   inviteParams: { room: "invited-room" },
+  showInviteButton: (params: Record<string, string>) => {
+    log.push(`inviteButton:${JSON.stringify(params)}`);
+    return "https://www.crazygames.com/game/x?room=ZZ";
+  },
+  hideInviteButton: () => void log.push("inviteButtonHidden"),
 };
 
 const userModule = {
@@ -187,6 +200,11 @@ g.window = {
 
 /* ------------------------------------------------------------------- the run */
 
+/* A save written by an older build, or edited by hand, must not break the
+   garage: this one is nonsense in every field and is read back first. */
+local.setItem("riverbend.profile", JSON.stringify({ car: 71, paint: "blue", hour: 99, camera: 1.4, volume: -5, net: "yes" }));
+const clamped = loadProfile();
+
 const state = await initCrazyGames();
 /* where the SDK is expected to answer at all, and where its answers are usable */
 const expectActive = environment === "crazygames" || environment === "local";
@@ -220,6 +238,11 @@ try {
   updateRoom({ roomId: "abc", isJoinable: true, inviteParams: { room: "abc" } });
   leftRoom();
   onJoinRoom(() => {});
+  const platformInvite = await inviteLink({ room: "abc" });
+  const buttonLink = showInviteButton({ room: "abc" });
+  hideInviteButton();
+  const authUser = await showAuthPrompt();
+  const arrivedFrom = inviteParams();
   await showBanner("riverbend-menu-banner");
   clearBanner("riverbend-menu-banner");
   const blocked = await hasAdblock();
@@ -240,9 +263,76 @@ try {
     check("instant multiplayer is read from the platform", instant === true);
     check("hasAdblock answers without throwing", blocked === false);
     check("a rewarded ad resolves true when it plays", earned === true);
+    check(
+      "the invite link is the platform's own when it can be had",
+      platformInvite === "https://www.crazygames.com/game/x?room=ZZ",
+      String(platformInvite),
+    );
+    check(
+      "the invite button is offered with the room and taken back",
+      buttonLink !== null && log.includes('inviteButton:{"room":"abc"}') && log.includes("inviteButtonHidden"),
+      log.filter((l) => l.startsWith("inviteButton")).join(" "),
+    );
+    check("the auth prompt hands back the platform user", authUser?.username === "CrazyDriver", String(authUser?.username));
+    check("the invite parameters are readable on boot", arrivedFrom?.room === "invited-room", JSON.stringify(arrivedFrom));
+  } else {
+    check(
+      "with no platform there is no invite link to offer",
+      platformInvite === null && buttonLink === null && authUser === null,
+      `${String(platformInvite)} / ${String(buttonLink)}`,
+    );
   }
   check("progress is only reported when it moves", log.filter((l) => l.startsWith("progress:")).length <= 1, log.filter((l) => l.startsWith("progress:")).join(","));
   check("the save reads back what was written", readBack === "Fast Phil", String(readBack));
+
+  /* the account screen: asked once per identity, and asked again for another */
+  saveChoice({ id: "CrazyDriver", guest: false, terms: true, answered: true, at: Date.now() });
+  check("the account screen is not asked twice", needsAccountSetup(fakeUser()) === false);
+  check(
+    "a different account has to confirm again",
+    needsAccountSetup({ username: "Someone.Else", profilePictureUrl: null }) === true,
+  );
+  /* a guest who skipped the tick still answered the question, and their answer
+     does not stand in for the account when they sign in later */
+  saveChoice({ id: "guest", guest: true, terms: false, answered: true, at: Date.now() });
+  check("a guest who skipped is still only asked once", needsAccountSetup(null) === false);
+  check("the guest answer does not cover an account", needsAccountSetup(fakeUser()) === true);
+
+  /* the player profile: written to the save, and never trusted blindly */
+  saveProfile({ car: "gt", paint: 0xff0077, hour: 3.5, camera: 1, volume: 0.8, net: false });
+  const back = loadProfile();
+  check(
+    "the profile reads back what was written",
+    back.car === "gt" &&
+      back.paint === 0xff0077 &&
+      Math.abs(back.hour - 3.5) < 0.001 &&
+      back.camera === 1 &&
+      Math.abs(back.volume - 0.8) < 0.001 &&
+      back.net === false,
+    JSON.stringify(back),
+  );
+  check(
+    "a nonsense profile is clamped instead of trusted",
+    clamped.car === DEFAULT_PROFILE.car &&
+      clamped.paint === DEFAULT_PROFILE.paint &&
+      clamped.hour === 24 &&
+      clamped.camera === 1 &&
+      clamped.volume === 0 &&
+      clamped.net === true,
+    JSON.stringify(clamped),
+  );
+
+  /* the lobby size the game is submitted with, enforced by the relay too */
+  check(
+    "the lobby size has a minimum and a maximum",
+    LOBBY_MAX === 8 && lobbyFull(LOBBY_MAX) === true && lobbyFull(LOBBY_MAX - 1) === false,
+    `max ${LOBBY_MAX}`,
+  );
+  check(
+    "a full lobby says why in words the driver can read",
+    lobbyFullMessage("abc").toLowerCase().includes("full") && lobbyFullMessage("abc").includes("ABC"),
+    lobbyFullMessage("abc"),
+  );
   if (scenario === "crazygames") {
     check("the room is reported to the platform", log.includes("room:abc"), log.join(" "));
     check(

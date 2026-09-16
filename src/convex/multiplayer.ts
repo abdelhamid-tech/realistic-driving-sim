@@ -1,6 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+/* the lobby size the game submitted to CrazyGames, shared with the lobby UI so
+   the cap on screen is the cap the relay enforces */
+import { LOBBY_MAX, lobbyFullMessage } from "../game/lobby";
 
 /**
  * Live multiplayer: one row per driver in a room, rewritten a handful of times
@@ -11,8 +14,12 @@ import { mutation, query } from "./_generated/server";
 
 /** How long a silent driver stays visible, in ms. */
 const TTL = 9000;
-/** Hard cap per room, so a scripted client cannot flood a room. */
-const MAX_DRIVERS = 24;
+/**
+ * Hard cap per room: the maximum lobby size the game submitted to CrazyGames
+ * (src/game/lobby.ts), so it is also the cap that stops a scripted client
+ * flooding a room.
+ */
+const MAX_DRIVERS = LOBBY_MAX;
 const MAX_SWEEP = 24;
 
 function cleanRoom(raw: string) {
@@ -66,15 +73,11 @@ export const publish = mutation({
     }
 
     const mine = live.find((row) => row.session === session);
-    if (!mine) {
-      const others = live.filter((row) => row.session !== session);
-      if (others.length >= MAX_DRIVERS) {
-        /* oldest out, so a stale row can never lock a room */
-        others.sort((a, b) => a.updatedAt - b.updatedAt);
-        const victim = others[others.length - 1];
-        await ctx.db.delete(victim._id);
-      }
-    }
+    /* A full lobby turns the next driver away instead of quietly dropping the
+       one who has been here longest: the player has to be told, and the lobby
+       size the game was submitted with has to mean something. Rows that went
+       quiet were already swept above, so a stale row can never lock a room. */
+    if (!mine && live.length >= MAX_DRIVERS) throw new Error(lobbyFullMessage(room));
 
     const fields = {
       room,
