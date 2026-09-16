@@ -148,14 +148,38 @@ function streetIndex(v: number): number {
 export type LampState = "r" | "a" | "g";
 const SIGNAL_OFFSET = (ix: number, iz: number) => (((ix * 3 + iz * 5) % 7) * 0.9);
 
-/** Deterministic junction phases: a rolling green wave instead of all-at-once. */
-export function junctionPhase(ix: number, iz: number, t: number) {
-  let c = (t + SIGNAL_OFFSET(ix, iz)) % 11;
-  if (c < 0) c += 11;
-  if (c < 5) return { ns: "g" as LampState, ew: "r" as LampState };
-  if (c < 6) return { ns: "a" as LampState, ew: "r" as LampState };
-  if (c < 10) return { ns: "r" as LampState, ew: "g" as LampState };
-  return { ns: "r" as LampState, ew: "a" as LampState };
+/* Signal timing, in seconds. A real junction does not slam from one green to
+   the next: each street runs its green, warns with amber, and then the whole
+   junction holds on red for a moment — the clearance a driver needs to be out
+   of the box before the other way comes. */
+const SIG_GREEN = 8;
+const SIG_AMBER = 2.4;
+const SIG_CLEAR = 1.6;
+const SIG_HALF = SIG_GREEN + SIG_AMBER + SIG_CLEAR;
+/** one full cycle, both streets, in seconds */
+export const SIGNAL_CYCLE = SIG_HALF * 2;
+
+/**
+ * Deterministic junction phases, offset junction by junction so the lights roll
+ * a green wave across the grid instead of all changing together.
+ *
+ * The cycle runs off the wall clock rather than a per-session counter: everyone
+ * in a shared city is looking at the same lights, and the lamps painted on the
+ * tarmac can never disagree with the lamps on the mast. `_t` is kept for the
+ * callers that still pass their own clock, and is the fallback where there is
+ * no wall clock to read.
+ */
+export function junctionPhase(ix: number, iz: number, _t: number) {
+  const base = typeof performance === "undefined" ? _t : performance.now() / 1000;
+  let c = (base + SIGNAL_OFFSET(ix, iz)) % SIGNAL_CYCLE;
+  if (c < 0) c += SIGNAL_CYCLE;
+  if (c < SIG_GREEN) return { ns: "g" as LampState, ew: "r" as LampState };
+  if (c < SIG_GREEN + SIG_AMBER) return { ns: "a" as LampState, ew: "r" as LampState };
+  const d = c - SIG_HALF;
+  if (d < 0) return { ns: "r" as LampState, ew: "r" as LampState };
+  if (d < SIG_GREEN) return { ns: "r" as LampState, ew: "g" as LampState };
+  if (d < SIG_GREEN + SIG_AMBER) return { ns: "r" as LampState, ew: "a" as LampState };
+  return { ns: "r" as LampState, ew: "r" as LampState };
 }
 
 /* -------------------------------------------------------------- textures */

@@ -9,6 +9,7 @@ import {
 } from "./mapbuild";
 import { isProcedural, type WorldMapSource } from "./worldmaps";
 import { loadWorldDress, applyWorldDress, tileInMetres, type WorldDress } from "./worlddress";
+import { dressStreets } from "./streetdress";
 import {
   buildFleetTemplate, buildVehicle, cloneFleetVehicle, GROUND_LIFT, PAINT_COLORS,
   randomTrafficKind, VEHICLES,
@@ -683,6 +684,9 @@ export function createGame(opts: GameOptions): GameHandle {
   const city = buildCity({ aniso: MAX_ANISO });
   const cityRoot = city.root;
   dressScene(cityRoot);
+  /* the signal harness and the light it throws, plus the wear the traffic has
+     left on the tarmac — see ./streetdress */
+  dressStreets(cityRoot, { streets: STREETS, cityR: CITY_R, lampMaterial: city.lampMaterial });
   const parkSpots = city.parkSpots;
   const parkedCarSpots = city.parkedCarSpots;
   const lampPoints = city.lampPoints;
