@@ -2,11 +2,16 @@
  * THE RADAR — where the car is, and where everyone else is.
  *
  * An open city with a multiplayer room in it needs one thing on screen at all
- * times: a map. This is that map — the real city plan (see src/game/cityplan),
- * cropped around the car, north up, with the player as the one arrow that never
- * moves off the middle and everyone else as coloured dots wherever they really
- * are. Their colour is their paint, so the red car you saw at the lights is the
- * red dot at the lights.
+ * times: a map. This is that map — the world the car is really on, cropped
+ * around it, north up, with the player as the one arrow that never moves off
+ * the middle and everyone else as coloured dots wherever they really are. Their
+ * colour is their paint, so the red car you saw at the lights is the red dot at
+ * the lights.
+ *
+ * The plan is the world's own (see src/game/plan): a map that is a model is
+ * drawn from that model's own triangles, so the river, the crossings and the
+ * buildings on the radar are the ones out of the windscreen. Only the generated
+ * city, which is code rather than a model, falls back to a drawn plan.
  *
  * It is deliberately not a game mechanic: no objectives, nothing hidden. It is
  * the thing every driving game has and this one was missing, and in a room of
@@ -18,7 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Map as MapIcon, Maximize2, Minimize2 } from "lucide-react";
-import { cityPlan, planX, planY, PLAN_METRES, PLAN_SCALE } from "@/game/cityplan";
+import { cityMapPlan, planKey, planPx, planPy, type MapPlan } from "@/game/plan";
 import type { NetSnapshot, Telemetry } from "@/game/types";
 
 /** the backing store of the corner radar; CSS decides how big it looks */
@@ -47,7 +52,10 @@ const paintCss = (paint: number | undefined) => {
 
 interface PaintOptions {
   size: number;
-  radius: number;
+  /** metres from the middle to the window's edge; omit to show the whole world */
+  radius?: number;
+  /** the plan of the world being driven; the generated city draws its own */
+  plan?: MapPlan | null;
   snapshot: NetSnapshot | null;
   peers: RadarPeer[];
   /** street names, for the big map */
@@ -63,14 +71,18 @@ interface PaintOptions {
 /** One frame of map. Everything here is in canvas pixels. */
 function paintMap(canvas: HTMLCanvasElement, o: PaintOptions) {
   const ctx = canvas.getContext("2d");
-  const plan = cityPlan(undefined, o.labels);
+  /* the world's own plan; the generated city is code, not a model, so it has
+     no geometry to draw one from and brings its own */
+  const plan = o.plan ?? cityMapPlan(o.labels === true);
   if (!ctx || !plan) return;
+  /* the big map is the whole world, whatever size that world is */
+  const radius = o.centred || o.radius === undefined ? plan.span / 2 : o.radius;
   const size = o.size;
   const half = size / 2;
   const px = o.snapshot?.x ?? 0;
   const pz = o.snapshot?.z ?? 0;
   const yaw = o.snapshot?.yaw ?? 0;
-  const scale = half / o.radius;
+  const scale = half / radius;
   /* the corner radar follows the car; the big map holds the whole city still,
      so the arrow walks across it instead of the city sliding under it */
   const cx = o.centred ? 0 : px;
@@ -88,8 +100,25 @@ function paintMap(canvas: HTMLCanvasElement, o: PaintOptions) {
   else ctx.arc(half, half, half - 1, 0, Math.PI * 2);
   ctx.clip();
 
-  const span = 2 * o.radius * PLAN_SCALE;
-  ctx.drawImage(plan, planX(cx - o.radius), planY(cz + o.radius), span, span, 0, 0, size, size);
+  const span = 2 * radius * plan.scale;
+  /* the world runs out at the edge of its plan: the sheet shows through. The
+     crop is clamped by hand, because drawImage stretches a source rectangle
+     that leaves the picture and an edge of the world would come out smeared. */
+  ctx.fillStyle = plan.backdrop;
+  ctx.fillRect(0, 0, size, size);
+  const cropX = planPx(plan, cx - radius);
+  const cropY = planPy(plan, cz + radius);
+  const fromX = Math.max(0, cropX);
+  const fromY = Math.max(0, cropY);
+  const toX = Math.min(plan.px, cropX + span);
+  const toY = Math.min(plan.px, cropY + span);
+  const atX = ((fromX - cropX) / span) * size;
+  const atY = ((fromY - cropY) / span) * size;
+  const wpx = ((toX - fromX) / span) * size;
+  const hpx = ((toY - fromY) / span) * size;
+  if (wpx > 0 && hpx > 0) {
+    ctx.drawImage(plan.canvas, fromX, fromY, toX - fromX, toY - fromY, atX, atY, wpx, hpx);
+  }
 
   /* everyone else: a dot in their own colour, anchored on the rim if they are
      outside the window. Everything scales with the canvas, so the corner radar
@@ -102,7 +131,7 @@ function paintMap(canvas: HTMLCanvasElement, o: PaintOptions) {
     const dz = peer.z - cz;
     const sx = half + dx * scale;
     const sy = half - dz * scale;
-    const inside = Math.abs(dx) < o.radius * 0.94 && Math.abs(dz) < o.radius * 0.94;
+    const inside = Math.abs(dx) < radius * 0.94 && Math.abs(dz) < radius * 0.94;
     if (!inside) {
       if (offscreen++ > 5) continue;
       /* off the edge: a chevron on the rim, pointing where they are */
@@ -188,6 +217,7 @@ export function Radar({
   peers,
   tel,
   quality,
+  plan,
   className,
 }: {
   /** read straight from the engine, once per frame — never React state */
@@ -196,8 +226,15 @@ export function Radar({
   tel: Telemetry | null;
   /** "AUTO · HIGH" or a pinned tier name */
   quality: string;
+  /**
+   * The plan of the world the car is on, or null while the generated city is
+   * the world (it brings its own drawn plan).
+   */
+  plan?: MapPlan | null;
   className?: string;
 }) {
+  /* which plan is on the sheet decides what the key under the big map says */
+  const key = planKey(plan);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bigRef = useRef<HTMLCanvasElement | null>(null);
   const [zoom, setZoom] = useState(0);
@@ -206,10 +243,14 @@ export function Radar({
      a ref synced by an effect is the honest way to do that, and it keeps the
      loop off the render path: telemetry arrives ten times a second and none
      of it should restart a frame. */
-  const liveRef = useRef<{ snapshot: () => NetSnapshot | null; peers: RadarPeer[] }>({ snapshot, peers });
+  const liveRef = useRef<{ snapshot: () => NetSnapshot | null; peers: RadarPeer[]; plan: MapPlan | null }>({
+    snapshot,
+    peers,
+    plan: plan ?? null,
+  });
   useEffect(() => {
-    liveRef.current = { snapshot, peers };
-  }, [snapshot, peers]);
+    liveRef.current = { snapshot, peers, plan: plan ?? null };
+  }, [snapshot, peers, plan]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -220,6 +261,7 @@ export function Radar({
       paintMap(canvas, {
         size: BACKING,
         radius: ZOOMS[zoom].radius,
+        plan: liveRef.current.plan,
         snapshot: liveRef.current.snapshot(),
         peers: liveRef.current.peers,
       });
@@ -237,7 +279,7 @@ export function Radar({
       raf = requestAnimationFrame(frame);
       paintMap(canvas, {
         size: BIG_BACKING,
-        radius: PLAN_METRES / 2,
+        plan: liveRef.current.plan,
         snapshot: liveRef.current.snapshot(),
         peers: liveRef.current.peers,
         labels: true,
@@ -338,18 +380,11 @@ export function Radar({
                 className="max-h-[76vh] w-auto max-w-full border border-edge/12 bg-card/88"
               />
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block size-2.5 bg-[#cdc6b0]" /> DOWNTOWN
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block size-2.5 bg-[#dbd5c4]" /> MIDTOWN
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block size-2.5 bg-[#e6e2d5]" /> OUTER
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block size-2.5 bg-[#cfdcc0]" /> PARK
-            </span>
+            {key.map((k) => (
+              <span key={k.label} className="flex items-center gap-1.5">
+                <span className="inline-block size-2.5" style={{ background: k.colour }} /> {k.label}
+              </span>
+            ))}
             <span className="flex items-center gap-1.5">
               <span className="inline-block size-2.5 bg-[#d97757]" /> YOU
             </span>

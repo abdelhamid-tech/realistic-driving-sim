@@ -78,7 +78,7 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
     name: "RIVERBEND",
     kind: "glb",
     url: "maps/riverbend.glb",
-    bytes: 7642196,
+    bytes: 7530104,
     fitTo: 0,
     turn: 0,
     cell: 4,
@@ -90,8 +90,16 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
   },
 ];
 
-/** What everybody can drive: the built city plus the shipped maps. */
-export const WORLD_MAP_LIST: WorldMapSource[] = [PROCEDURAL_MAP, ...BUILT_IN_MAPS];
+/**
+ * The world the game opens on. RIVERBEND is the city the game ships with — the
+ * one built by tools/build-riverbend.mjs, with the owner's own bridge baked into
+ * it — so it is where a player starts, and the generated city is the one you go
+ * and find in the world list (or the one the game falls back to).
+ */
+export const HOME_MAP: WorldMapSource = BUILT_IN_MAPS[0] ?? PROCEDURAL_MAP;
+
+/** What everybody can drive: the world it ships with, then the generated city. */
+export const WORLD_MAP_LIST: WorldMapSource[] = [...BUILT_IN_MAPS, PROCEDURAL_MAP];
 
 /** One row of the `worldMaps` table, as the query returns it. */
 export interface WorldMapRow {

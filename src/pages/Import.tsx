@@ -775,7 +775,7 @@ export default function Import() {
           <div className="mt-3 space-y-3">
             {list.length === 0 ? (
               <p className="font-mono text-[11px] text-muted-foreground">
-                Nothing imported yet. The game is driving APEX CITY, the built-in procedural city.
+                Nothing imported yet. The game is driving RIVERBEND, the city the game ships with.
               </p>
             ) : null}
 

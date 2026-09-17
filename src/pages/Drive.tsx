@@ -45,8 +45,9 @@ import { lobbyFull } from "@/game/lobby";
 import { loadProfile, saveProfile } from "@/game/profile";
 import { QualityWatch, TIER_NAMES, initialTier } from "@/game/perf";
 import {
-  PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
+  HOME_MAP, PROCEDURAL_MAP, WORLD_MAP_LIST, mapFromRow, type WorldMapRow, type WorldMapSource,
 } from "@/game/worldmaps";
+import { worldMapPlan, type MapPlan } from "@/game/plan";
 import { pushPropModels, pushWorldSpots, type PropModel, type PropSpotMap } from "@/game/props";
 import { Check, Download, Gauge, Link2, Loader2, PlayCircle, Settings2, Users, X, Zap } from "lucide-react";
 
@@ -58,6 +59,27 @@ const MILESTONES = [10000, 40000, 100000];
 const BOOST_MS = 10 * 60 * 1000;
 /** The banner container on the menu screen. */
 const BANNER_ID = "riverbend-menu-banner";
+
+/**
+ * Draws the radar's plan for a world that has just gone live.
+ *
+ * A world that is a model holds no picture of itself, so its plan is cut from
+ * its own file — deliberately *after* the engine has loaded and read it, so the
+ * two never fight over the download or the main thread, which on a 7 MB city is
+ * the difference between a second of loading and three. The generated city is
+ * code, not a model, and draws its own plan (see src/game/plan): null says so.
+ */
+function drawRadarPlan(
+  source: WorldMapSource,
+  alive: () => boolean,
+  set: (plan: MapPlan | null) => void,
+) {
+  set(null);
+  if (source.kind === "procedural" || !source.url) return;
+  void worldMapPlan(source).then((plan) => {
+    if (alive() && plan) set(plan);
+  });
+}
 
 /** One row of `props.list`: the owner's model for a street-furniture slot. */
 interface PropRow {
@@ -165,11 +187,17 @@ export default function Drive() {
   const [netError, setNetError] = useState<string | null>(null);
   const [session] = useState(makeSession);
 
-  /* the world we are driving on: the built city, or an imported map */
-  const [worldName, setWorldName] = useState(PROCEDURAL_MAP.name);
-  const [worldSource, setWorldSource] = useState<WorldMapSource>(PROCEDURAL_MAP);
+  /* the world we are driving on: the city the game ships with, a map the owner
+     has made active, or the generated city */
+  const [worldName, setWorldName] = useState(HOME_MAP.name);
+  const [worldSource, setWorldSource] = useState<WorldMapSource>(HOME_MAP);
   const [worldLoad, setWorldLoad] = useState<{ p: number; note: string } | null>(null);
   const loadedWorldRef = useRef<string | null>(null);
+  /* The radar draws the world it is in, and a world that is a model has to be
+     read to be drawn: its plan is cut from the map's own file, once per visit,
+     while the world it belongs to is being driven. Null means the generated
+     city, which draws its own plan from the code it is built from. */
+  const [worldPlan, setWorldPlan] = useState<MapPlan | null>(null);
 
   const { name: driver, setName: setDriverName, forget: forgetDriver } = useDriver();
   /* the platform this build is running on: CrazyGames, localhost, or nowhere */
@@ -393,9 +421,10 @@ export default function Drive() {
   }, []);
 
   /* ------------------------------------------------------------- the world
-   *  If an imported map is marked active it takes the place of the built city.
-   *  The model is fetched, measured and read into the drivable surface once
-   *  per visit, and the settings panel can switch worlds by hand. */
+   *  The game opens on RIVERBEND, the city it ships with, and an imported map
+   *  the owner has marked active takes its place. Whichever it is, the model is
+   *  fetched, measured and read into the drivable surface once per visit, and
+   *  the settings panel can switch worlds by hand. */
   const worldRows = useMemo(() => ((worldMaps ?? []) as unknown as WorldMapRow[]), [worldMaps]);
   const activeMap = useMemo(() => {
     const row = worldRows.find((m) => m.active);
@@ -422,11 +451,15 @@ export default function Drive() {
     setWorldLoad({ p: 0.01, note: "opening" });
     game
       .loadWorldMap(source, (p, note) => setWorldLoad({ p, note }))
-      .then((report) => toast.success(source.name + " is live", { description: report }))
+      .then((report) => {
+        toast.success(source.name + " is live", { description: report });
+        drawRadarPlan(source, () => loadedWorldRef.current === source.id, setWorldPlan);
+      })
       .catch((err) => {
         /* the city stays on the road, and so does its furniture list */
         loadedWorldRef.current = null;
         setWorldSource(PROCEDURAL_MAP);
+        setWorldPlan(null);
         toast.error("That world did not load", {
           description: err instanceof Error ? err.message : String(err),
         });
@@ -438,29 +471,30 @@ export default function Drive() {
     if (!booted || worldMaps === undefined) return;
     const game = gameRef.current;
     if (!game) return;
-    const wanted = activeMap?.id ?? PROCEDURAL_MAP.id;
-    if (loadedWorldRef.current === wanted) return;
-    loadedWorldRef.current = wanted;
-    if (!activeMap) {
-      setWorldName(PROCEDURAL_MAP.name);
-      setWorldSource(PROCEDURAL_MAP);
-      return;
-    }
+    /* the owner's active map wins; with none active the game drives the city it
+       ships with, and the generated city is what is left if that will not load */
+    const target = activeMap ?? HOME_MAP;
+    if (loadedWorldRef.current === target.id) return;
+    loadedWorldRef.current = target.id;
     let live = true;
-    setWorldName(activeMap.name);
-    setWorldSource(activeMap);
+    setWorldName(target.name);
+    setWorldSource(target);
     setWorldLoad({ p: 0.01, note: "opening" });
     game
-      .loadWorldMap(activeMap, (p, note) => {
+      .loadWorldMap(target, (p, note) => {
         if (live) setWorldLoad({ p, note });
       })
       .then((report) => {
-        if (live) toast.success(activeMap.name + " is live", { description: report });
+        if (!live) return;
+        toast.success(target.name + " is live", { description: report });
+        drawRadarPlan(target, () => live, setWorldPlan);
       })
       .catch((err) => {
         if (live) {
           loadedWorldRef.current = null;
+          setWorldName(PROCEDURAL_MAP.name);
           setWorldSource(PROCEDURAL_MAP);
+          setWorldPlan(null);
         }
         toast.error("The active map did not load", {
           description: err instanceof Error ? err.message : String(err),
@@ -754,7 +788,7 @@ export default function Drive() {
   }, [booted]);
   useEffect(() => {
     if (!booted) return;
-    if (markWorldVisited(activeMap?.id ?? PROCEDURAL_MAP.id)) reportProgress(completion().percentage);
+    if (markWorldVisited(activeMap?.id ?? HOME_MAP.id)) reportProgress(completion().percentage);
   }, [booted, activeMap]);
   useEffect(() => {
     if (!booted || !started) return;
@@ -1096,6 +1130,7 @@ export default function Drive() {
             snapshot={radarSnapshot}
             peers={otherDrivers}
             tel={tel}
+            plan={worldPlan}
             quality={qualityLabel}
             className="absolute bottom-[104px] left-3 z-[6] w-[152px] sm:left-6 sm:w-[176px] lg:bottom-auto lg:left-1/2 lg:top-3 lg:-translate-x-1/2"
           />
