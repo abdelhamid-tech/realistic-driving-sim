@@ -1,3 +1,4 @@
+/** Throwaway: drive out to the river island and back on its causeway. */
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -22,15 +23,19 @@ gltf.scene.traverse((o) => {
 });
 const F = buildMapField(new Float32Array(tris), { cell: 4, wallHeight: 2.2 });
 
+const X = -170;
 let y = 0.15;
-for (let z = -270; z <= -150; z += 4) {
-  const cells = [];
-  for (const cx of [-2, 2]) for (const cz of [z - 2, z + 2]) {
-    const l = layersAt(F, cx, cz) ?? [];
-    cells.push(`${cx},${cz}:${l.length ? l.map((v) => v.toFixed(1)).join("/") : "—"}`);
+let worst = 0;
+for (let z = -410; z <= -150; z += 4) {
+  const h = sampleMap(F, X, z, y);
+  const l = layersAt(F, X, z) ?? [];
+  if (h === null) {
+    console.log(`z=${z} null`);
+    continue;
   }
-  const h = sampleMap(F, 0, z, y);
-  console.log(`z=${z} refY=${y.toFixed(2)} h=${h === null ? "—" : h.toFixed(2)}\n    ${cells.join("\n    ")}`);
-  if (h !== null) y = h;
+  worst = Math.max(worst, Math.abs(h - y));
+  console.log(`z=${z} y=${y.toFixed(2)} -> ${h.toFixed(2)}  layers ${l.map((v) => v.toFixed(2)).join("/")}`);
+  y = h;
 }
+console.log("worst step", worst.toFixed(2), "final y", y.toFixed(2));
 process.exit(0);

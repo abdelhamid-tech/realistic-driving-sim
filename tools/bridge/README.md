@@ -5,7 +5,11 @@ into RIVERBEND in place of one of its river crossings — not as a prop beside t
 road, but as the road itself:
 
 * its **roadway becomes drivable ground** and its railings, towers and pylons
-  become walls, exactly like the bridges the map builds from code;
+  become walls, exactly like the bridges the map builds from code — a road of
+  the map's own is laid a few centimetres under the model's deck and driven
+  there, so what a car rides on is the carriageway with its markings and the
+  ramps that climb to it, rather than whatever the model's girders and kerbs
+  happen to be nearest the wheels;
 * it keeps the **colours you modelled it in** (a map carries no images, so
   textures are dropped — see *What is kept* below);
 * it costs **one draw call per material**, like the rest of the city, and
@@ -96,6 +100,16 @@ therefore leave it spanning more or less river than the crossing.
   would drag the map's own origin — and with it every prop, spawn and height in
   the city — down to the end of the deepest pier. The log says how many
   triangles that took.
+
+## The approaches
+
+The two ramps that lead up to your bridge from either bank are built by the
+map, not by the model, and they are built **as wide as your bridge's deck** —
+the log prints that as `15 m wide` and the fit's `width`. They are embankments
+of solid fill: the street is not laid under them (that would be a car driving
+the road *under* the ramp to the water instead of climbing it) and each side is
+a retaining wall that keeps a car on the ramp. Set `"fit": "width"` if the
+approaches come out wider than the road they land on.
 
 ## When something goes wrong
 

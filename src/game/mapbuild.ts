@@ -21,22 +21,20 @@
  *  world space and returns plain data, which keeps it testable headlessly.
  * ==========================================================================*/
 
-/** Surfaces stored per cell. Four is plenty: street, kerb, deck, roof. */
-const LAYERS = 4;
+/**
+ * Surfaces stored per cell. Eight, not four: a cell under a detailed bridge
+ * holds its own street or riverbed, the pier or girder faces above it, the
+ * roadway and then a railing — and a bridge that arrives as a model brings
+ * more of those than a bridge built from boxes does, so four filled up before
+ * the roadway was written and a car driving on it was handed the girder below
+ * instead. Cells are 4 m square; the field is a few megabytes either way.
+ */
+const LAYERS = 8;
 /** Layers closer than this are the same surface seen twice. Metres. */
 const LAYER_MERGE = 0.55;
 /** A cell refuses to be reached by more than this above the car. Metres. */
 const MAX_RISE = 1.05;
-/**
- * What a car drives straight onto: a kerb, a plate, a lip. Metres. Below the
- * reach above, and the reason for it: a bridge carries railings half a metre
- * over its roadway, and with only "the highest surface you can reach" a car
- * would climb onto them and drive the length of the bridge in the air. So the
- * nearest surface within a step up wins; the full reach is for the cases where
- * there is nothing to step onto at all — a car landing on a deck from a jump,
- * or meeting a bank that climbs faster than a step.
- */
-const STEP_UP = 0.45;
+
 /** Bucket size for the wall lookup. Metres. */
 const BUCKET = 24;
 /** Half thickness given to a wall face. Metres — thick enough not to be
@@ -119,6 +117,25 @@ export interface MapBuildOptions {
 }
 
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
+
+/**
+ * True when a point lies inside a triangle's footprint — edges included, and
+ * either winding, because an exported model's faces arrive either way round.
+ * Three edge orientations that disagree mean the point is outside.
+ */
+function coversXZ(
+  ax: number, az: number,
+  bx: number, bz: number,
+  cx: number, cz: number,
+  px: number, pz: number,
+) {
+  const d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+  const d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+  const d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+  const negative = d1 < 0 || d2 < 0 || d3 < 0;
+  const positive = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(negative && positive);
+}
 
 /* -------------------------------------------------------------------------- */
 /*  building the field                                                        */
@@ -229,34 +246,54 @@ export function buildMapField(tris: Float32Array, opts: MapBuildOptions = {}): M
     if (Math.abs(nY) > 0.5) {
       /* A surface you could stand on: write its height on the cell grid. The
          sign is ignored because exported models arrive with their faces
-         wound either way — a street that faces down is still a street. */
+         wound either way — a street that faces down is still a street.
+
+         Only into cells the surface actually covers. Writing a triangle into
+         every cell its bounding box touches hands a cell a height from a
+         surface that is metres away — a bridge's girder arriving in the cell
+         before the bridge begins, and taken for the road the car is on. A
+         surface too small to hold a cell of its own (the paint of a road
+         marking, a kerb) is the one exception: it is written where it lies,
+         because dropping it would leave a hole where nothing is. */
       const flat = Math.abs(nY) > 1e-4;
+      const tiny = i1 - i0 <= 1 && j1 - j0 <= 1;
       for (let j = j0; j <= j1; j++) {
         const cz2 = z0 + (j + 0.5) * cell;
         for (let i2 = i0; i2 <= i1; i2++) {
           const cx2 = x0 + (i2 + 0.5) * cell;
+          if (!tiny && !coversXZ(ax, az, bx, bz, cx, cz, cx2, cz2)) continue;
           const h = flat ? ay - (nX * (cx2 - ax) + nZ * (cz2 - az)) / nY : ay;
           if (!isFinite(h)) continue;
           const idx = j * nx + i2;
           const c = counts[idx];
+          const at = idx * LAYERS;
           let slot = -1;
           for (let k = 0; k < c; k++) {
-            if (Math.abs(layers[idx * LAYERS + k] - h) < LAYER_MERGE) {
+            if (Math.abs(layers[at + k] - h) < LAYER_MERGE) {
               slot = k;
               break;
             }
           }
-          if (slot < 0) {
-            if (c >= LAYERS) continue;
-            slot = c;
-            counts[idx] = c + 1;
-          }
-          layers[idx * LAYERS + slot] = h;
-          /* keep the short list ascending */
-          for (let k = slot; k > 0 && layers[idx * LAYERS + k - 1] > layers[idx * LAYERS + k]; k--) {
-            const tmp = layers[idx * LAYERS + k - 1];
-            layers[idx * LAYERS + k - 1] = layers[idx * LAYERS + k];
-            layers[idx * LAYERS + k] = tmp;
+          if (slot >= 0) continue;   /* that surface is already in here */
+          if (c >= LAYERS) continue; /* and this cell has no room for another */
+          /*
+           * A surface already in the cell wins over one that arrives later, and
+           * that order is the map's own: the ground is laid first, then the
+           * roads and the bridges over it, then the city on top. It is what
+           * keeps a roadway the roadway — a bridge built from code lays its
+           * carriageway before anything else, and where a bridge arrives as a
+           * detailed model the roadway the map lays under it is first too, so
+           * the girders, kerbs and railings that follow cannot walk the road's
+           * own surface up onto the railings or down onto the girders.
+           */
+          layers[at + c] = h;
+          counts[idx] = c + 1;
+          /* keep the short list ascending: the first entry is the ground a
+             cell stands on, and everything that reads a cell reads it first */
+          for (let k = c; k > 0 && layers[at + k - 1] > layers[at + k]; k--) {
+            const tmp = layers[at + k - 1];
+            layers[at + k - 1] = layers[at + k];
+            layers[at + k] = tmp;
           }
         }
       }
@@ -421,22 +458,45 @@ export function layersAt(F: MapField, x: number, z: number): number[] {
   return out;
 }
 
-/** Which surface in this cell the car is on: the highest one it can reach. */
+/**
+ * Which surface in this cell the car is on: the one nearest the height it is
+ * already at, of those it could reach.
+ *
+ * "Nearest", not "highest". A cell can hold several surfaces — the roadway of
+ * a bridge, the girders under it, the railings above it, the second deck of an
+ * overpass — and taking the highest one within a step is how a car climbs a
+ * staircase of them: each face is less than a step above the last, so from the
+ * roadway it mounts the kerb, from the kerb the parapet, and from the parapet
+ * it drives the length of the bridge in the air. Waiting for the car to reach a
+ * surface, rather than offering it the best one in reach, leaves the staircase
+ * alone: a bridge that arrives as a detailed model is full of them.
+ *
+ * A step up still works, because the surface under a moving car is continuous:
+ * a ramp of 10 % is 40 cm per cell, and every cell it crosses holds that ramp
+ * within a step of where the car is. The full reach (`MAX_RISE`) is what lets a
+ * car land on a deck from a jump, and the clamp at the end keeps a height the
+ * car cannot reach at all from throwing it into the air.
+ */
 function pickLayer(F: MapField, i: number, j: number, refY: number) {
   const idx = j * F.nx + i;
   const c = F.counts[idx];
   if (!c) return F.baseY;
   const lim = refY + MAX_RISE;
-  const step = refY + STEP_UP;
   const base = idx * LAYERS;
   let near = -Infinity;
+  let nearest = Infinity;
   let best = -Infinity;
   let lowest = Infinity;
   for (let k = 0; k < c; k++) {
     const h = F.layers[base + k];
     if (h < lowest) lowest = h;
-    if (h <= step && h > near) near = h;
-    if (h <= lim && h > best) best = h;
+    if (h > lim) continue;
+    const d = Math.abs(h - refY);
+    if (d < nearest) {
+      nearest = d;
+      near = h;
+    }
+    if (h > best) best = h;
   }
   let h = near !== -Infinity ? near : best !== -Infinity ? best : lowest;
   if (h > refY + MAX_RISE) h = refY;

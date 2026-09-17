@@ -2,9 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
-import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";
-import {
-  buildMapField, findSpawn, sampleMap, wallsNear,
+import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";import { buildMapField, findSpawn, sampleMap, wallsNear,
   type MapField, type MapSpawn, type MapWall,
 } from "./mapbuild";
 import { isProcedural, type WorldMapSource } from "./worldmaps";

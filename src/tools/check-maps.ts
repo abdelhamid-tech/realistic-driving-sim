@@ -48,23 +48,30 @@ const EXPECT: Record<string, Expectation> = {
            ramp that is already above its bumper, cannot step up onto it, and
            drives the ground to the water instead. That is a real failure, but
            it is the check starting in the wrong place, not the map. */
-        const zc = riverZAt(0);
-        const foot = riverHalfAt(0) + BANK + 4 + RAMP_LEN + 30;
+        const { za, zb } = crossingBand(CROSSING_X, CROSSING_HALF);
+        /* start back on the street, before the foot of the ramp, and drive the
+           whole crossing the way a car does: up one approach, over the span,
+           down the other */
+        const from = za - RAMP_LEN - 20;
+        const to = zb + RAMP_LEN + 20;
         let y = 0.15;
+        const deck: number[] = [];
         const run: number[] = [];
-        for (let z = zc - foot; z <= zc + foot; z += 4) {
-          const h = sampleMap(F, 0, z, y);
+        for (let z = from; z <= to; z += 4) {
+          const h = sampleMap(F, CROSSING_X, z, y);
           if (h === null) continue;
-          if (z > zc - 195 && z < zc + 195) run.push(h);
+          run.push(h);
+          if (z >= za && z <= zb) deck.push(h);
           y = h;
         }
-        const onDeck = run.every((h) => Math.abs(h - DECK_Y) < 1.6);
+        const onDeck = deck.every((h) => Math.abs(h - DECK_Y) < 1.6);
         const steady = run.every((h, i) => i === 0 || Math.abs(h - run[i - 1]) < 0.8);
         const worst = Math.max(...run.map((h, i) => (i ? Math.abs(h - run[i - 1]) : 0)));
         return [
           "a bridge deck is drivable from bank to bank",
-          run.length >= 90 && onDeck && steady,
-          `${run.length} steps across the crossing, ${Math.min(...run).toFixed(2)}–${Math.max(...run).toFixed(2)} m of deck, ` +
+          deck.length >= 60 && onDeck && steady,
+          `${run.length} steps over the crossing (${deck.length} of them on the deck), ` +
+            `the deck ${Math.min(...deck).toFixed(2)}–${Math.max(...deck).toFixed(2)} m against ${DECK_Y} m, ` +
             `worst step ${worst.toFixed(2)} m`,
         ] as [string, boolean, string];
       })(),
@@ -92,10 +99,18 @@ const near = (a: number, b: number, tol: number) => Math.abs(a - b) < tol;
 /* the river's geometry and the crossings' approaches, mirrored from
    tools/build-riverbend.mjs for assertions */
 const MEAN_Z = 0, AMP = 260, WAVELEN = 1450, RIVER_HALF_BASE = 95, RIVER_HALF_WIDEN = 28;
-const BANK = 73, RAMP_LEN = 90;
+const BANK = 46, RAMP_LEN = 90;
 const riverZAt = (x: number) => MEAN_Z + AMP * Math.sin((x / WAVELEN) * Math.PI * 2);
 const riverHalfAt = (x: number) => RIVER_HALF_BASE + RIVER_HALF_WIDEN * Math.cos((x / WAVELEN) * Math.PI * 4 + 1.1);
 const DECK_Y = 9;
+/** the crossing the drive below takes: the middle one, x = 0 downtown */
+const CROSSING_X = 0, CROSSING_HALF = 14;
+/** the z band a crossing occupies: the feet of its ramps, either side */
+function crossingBand(x: number, half: number) {
+  const za = riverZAt(x - half) - riverHalfAt(x - half) - BANK - 4;
+  const zb = riverZAt(x + half) + riverHalfAt(x + half) + BANK + 4;
+  return { za: Math.min(za, zb), zb: Math.max(za, zb) };
+}
 const TUNNELS = [
   { x: -540, z0: -640, z1: -400, w: 9, h: 5.4 },
   { x: 540, z0: 400, z1: 640, w: 9, h: 5.4 },

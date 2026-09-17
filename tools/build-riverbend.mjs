@@ -9,8 +9,10 @@
  *
  *   · a wide, sinuous river cut through the middle, with landscaped banks
  *   · 6 unique crossings (arch, cable-stayed, girder, suspension, pontoon,
- *     bascule) — and the owner's own bridge model can take the place of one
- *     of them, baked in as real geometry: see tools/bridge/README.md
+ *     bascule), each carrying a real road up ramps built as embankments — and
+ *     the owner's own bridge model can take the place of one of them, baked in
+ *     as real geometry: see tools/bridge/README.md
+ *   · an island in the river, with a causeway a car can drive onto it
  *   · downtown: towers toward the centre of each bank
  *   · residential quarters: small blocks, pitched roofs
  *   · an industrial zone: halls, silos, chimneys, tanks
@@ -122,6 +124,64 @@ function onBridgeX(x) {
   return BRIDGES.some((b) => Math.abs(x - b.x) < b.half + 6);
 }
 
+/* ------------------------------------------------ the river, as a rectangle *
+ *  The city grid is 200 m on a side and the river wanders through it, so a
+ *  block's own square can sit on dry land at its centre and still reach across
+ *  the water at one corner — and a block that reaches across the water used to
+ *  carry its kerb plate (a slab at kerb height), its grass, and on one corner
+ *  of the map a downtown tower out over the river and onto the island.
+ *
+ *  So nothing is measured at a block's centre any more: every surface the city
+ *  lays down is laid in strips that stop at the bank, and anything with a
+ *  footprint — a tower, a hall, a pond — is only built where it fits on land.
+ * -------------------------------------------------------------------------*/
+/** the river's own band at this x, including its landscaped bank: [z0, z1] */
+function waterBand(x) { /* the river's band at this x */
+  const half = riverHalf(x) + BANK;
+  const zc = riverCentre(x);
+  return [zc - half, zc + half];
+}
+
+/** the parts of a z span at this x that are on dry land */
+function drySpans(x, z0, z1) {
+  const [w0, w1] = waterBand(x);
+  const out = [];
+  if (z0 < w0) out.push([z0, Math.min(z1, w0)]);
+  if (z1 > w1) out.push([Math.max(z0, w1), z1]);
+  return out.filter(([a, b]) => b - a > 0.5);
+}
+
+/** true when any part of this rectangle is in the river or on its bank */
+function reachesRiver(x0, x1, z0, z1) {
+  const step = Math.max(6, (x1 - x0) / 12);
+  for (let x = x0; x <= x1 + 1e-6; x += step) {
+    const [w0, w1] = waterBand(x);
+    if (z1 > w0 && z0 < w1) return true;
+  }
+  return false;
+}
+
+/** A flat surface laid only where the land is: it stops at the bank. */
+function drySlab(x0, z0, x1, z1, y, mat, step = 8) {
+  for (let x = x0; x < x1; x += step) {
+    const xs = Math.min(x + step, x1);
+    for (const [a, b] of drySpans((x + xs) / 2, z0, z1)) G.slab(x, a, xs, b, y, mat);
+  }
+}
+
+/**
+ * A block's kerb plate, laid in the same strips: it is the city's own ground
+ * level, so it has to end where the land ends rather than hang over the water.
+ */
+function dryPlate(x0, z0, x1, z1, step = 8) {
+  for (let x = x0; x < x1; x += step) {
+    const xs = Math.min(x + step, x1);
+    for (const [a, b] of drySpans((x + xs) / 2, z0, z1)) {
+      G.box(x, 0, a, xs, KERB, b, M.concrete, { skip: ["bottom"] });
+    }
+  }
+}
+
 /* a deterministic shuffle so the city is the same every build */
 let seed = 20260915;
 const rnd = () => {
@@ -190,6 +250,114 @@ const BRIDGE_CROSSINGS = bridgeModel ? crossingsFor(bridgeOpts) : new Set();
 /** what each crossing the bridge took over turned into */
 const bridgeFits = [];
 
+/**
+ * The owner's bridge, fitted to its crossing — worked out once and kept.
+ *
+ * The fit is asked for from three places that cannot see each other: the
+ * bridge is baked where the crossings are built, the approaches' width comes
+ * out of it, and the land the approaches stand on has to know where they are
+ * before any ground is laid. One memo, so the model is measured once.
+ */
+const fitCache = new Map();
+function bridgeFit(b) {
+  if (!bridgeModel || !BRIDGE_CROSSINGS.has(b.x)) return null;
+  const hit = fitCache.get(b.x);
+  if (hit !== undefined) return hit;
+  const { za, zb } = crossingBand(b);
+  const zc = (riverCentre(b.x - b.half) + riverCentre(b.x + b.half)) / 2;
+  const halfWater = riverHalf(b.x);
+  const fit = fitToCrossing(
+    bridgeModel,
+    {
+      x: b.x,
+      half: b.half,
+      z0: za,
+      z1: zb,
+      water: [zc - halfWater, zc + halfWater],
+      deckY: DECK_Y,
+      /* below this it is mud, and it is cut off there */
+      floor: BRIDGE_FLOOR,
+    },
+    bridgeOpts,
+  );
+  fitCache.set(b.x, fit);
+  return fit;
+}
+
+/**
+ * The carriageway of a crossing: the width the owner's bridge arrived with
+ * where there is one, the map's own where there is not. The approaches are cut
+ * to it, so what climbs the bank is the road that crosses, rather than a 28 m
+ * ledge hanging either side of a 15 m deck.
+ */
+function roadHalfOf(b) {
+  const fit = bridgeFit(b);
+  return fit ? Math.max(5.5, fit.report.width / 2) : b.half;
+}
+
+/**
+ * Where every crossing's approaches are: both ramps of all six, as rectangles
+ * in plan. Nothing else is built inside them — no land under them, because an
+ * approach is a bank of fill and not a viaduct, and no street markings across
+ * them, because the ramp carries its own. Two surfaces in one cell (the street
+ * at 0 and the ramp above it) is a car that drives along the street *under* the
+ * ramp to the water instead of climbing it, which is what these rectangles are
+ * here to prevent (see buildGround, line and buildBridges).
+ */
+let rampRects = null;
+function ramps() {
+  if (rampRects) return rampRects;
+  const out = [];
+  for (const b of BRIDGES) {
+    const { za, zb } = crossingBand(b);
+    const half = roadHalfOf(b);
+    out.push(
+      { x0: b.x - half, x1: b.x + half, z0: za - RAMP_LEN, z1: za },
+      { x0: b.x - half, x1: b.x + half, z0: zb, z1: zb + RAMP_LEN },
+    );
+  }
+  out.push(causewayRamp());
+  return (rampRects = out);
+}
+
+/**
+ * The road onto the river island: a short, shallow ramp up off the south bank
+ * onto the causeway. It is an approach like any other — the land is not laid
+ * under it either, or the car takes the street beneath it and reaches the
+ * island's shore at water level.
+ */
+function causewayRamp() {
+  const zBank = riverCentre(ISLE.x) - riverHalf(ISLE.x) - BANK;
+  return {
+    x0: ISLE.x - CAUSEWAY_HALF,
+    x1: ISLE.x + CAUSEWAY_HALF,
+    z0: zBank - CAUSEWAY_RUN,
+    z1: zBank,
+  };
+}
+
+/** true inside a bridge approach, where the land is built as an embankment */
+const onRamp = (x, z) => ramps().some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1);
+
+/** [z0,z1] with every approach rectangle crossing this x band taken out of it */
+function notUnderRamp(x0, x1, z0, z1) {
+  let spans = [[z0, z1]];
+  for (const r of ramps()) {
+    if (r.x1 <= x0 || r.x0 >= x1) continue;
+    const next = [];
+    for (const [a, b] of spans) {
+      if (r.z1 <= a || r.z0 >= b) {
+        next.push([a, b]);
+        continue;
+      }
+      if (r.z0 > a) next.push([a, Math.min(r.z0, b)]);
+      if (r.z1 < b) next.push([Math.max(r.z1, a), b]);
+    }
+    spans = next;
+  }
+  return spans;
+}
+
 /** A road deck from x0 to x1 at height y, with kerbs, over whatever is below */
 function deck(x0, x1, half, y, mat = M.asphalt) {
   G.quad(
@@ -206,7 +374,6 @@ function buildBridges() {
   for (const b of BRIDGES) {
     const x0 = b.x - b.half;
     const x1 = b.x + b.half;
-    const zc0 = riverCentre(x0), zc1 = riverCentre(x1);
     /* the ramps land on flat ground, past the whole landscaped bank */
     const { za, zb } = crossingBand(b);
     const custom = BRIDGE_CROSSINGS.has(b.x);
@@ -215,31 +382,25 @@ function buildBridges() {
        is the road that crosses, not a 28 m ledge hanging either side of a 15 m
        deck. Everything else about the crossing — where it is, its water, the
        deck height every roadway in the map meets — is the map's. */
-    let fit = null;
-    if (custom) {
-      const zc = (zc0 + zc1) / 2;
-      const halfWater = riverHalf(b.x);
-      fit = fitToCrossing(
-        bridgeModel,
-        {
-          x: b.x,
-          half: b.half,
-          z0: za,
-          z1: zb,
-          water: [zc - halfWater, zc + halfWater],
-          deckY: DECK_Y,
-          /* below this it is mud, and it is cut off there */
-          floor: BRIDGE_FLOOR,
-        },
-        bridgeOpts,
-      );
-    }
+    const fit = custom ? bridgeFit(b) : null;
     /* the carriageway of this crossing: the bridge's own width where the owner
        brought one, the map's otherwise */
-    const roadHalf = fit ? Math.max(5.5, fit.report.width / 2) : b.half;
+    const roadHalf = roadHalfOf(b);
     const rx0 = b.x - roadHalf;
     const rx1 = b.x + roadHalf;
-    if (!custom) deck(x0, x1, b.half, DECK_Y);
+    if (!custom) {
+      deck(x0, x1, b.half, DECK_Y);
+    } else {
+      /* The roadway across the owner's bridge: the map lays its own carriageway
+         over the span, exactly as it does for every crossing built from code,
+         and the model stands on it. A bridge that arrives as a model carries
+         kerbs, railings, girders and hangers — every one of them a surface a
+         wheel could be said to be on — so without a roadway of the map's own
+         there is no single surface the field can call the road. It goes a few
+         centimetres under the model's own deck: the model's roadway is what is
+         seen, the map's is what is driven. */
+      G.slab(rx0 + 0.3, za, rx1 - 0.3, zb, DECK_Y - 0.06, M.asphalt);
+    }
 
     /* approaches: ramps up from street level on each side */
     const rampLen = RAMP_LEN;
@@ -247,11 +408,24 @@ function buildBridges() {
       G.quad(
         [rx0, y0, z0], [rx1, y0, z0], [rx1, y1, z1], [rx0, y1, z1], M.asphalt, [0, 1, 0],
       );
+      /* The approach is a bank of fill, not a plate in the air: no land is laid
+         under it (see buildGround), so its sides are built here — a retaining
+         wall each side, from the roadway's edge down to the ground it stands
+         on. Segment by segment, because each piece is only as tall as the ramp
+         is above it there: the short piece at the foot is a kerb a car crosses,
+         and the tall pieces inland are walls that keep a car on the ramp.
+         A wall box carries the tallest point of its face, so one long face
+         would be a nine-metre wall at the very foot of the ramp. */
+      const pieces = Math.max(1, Math.round((z1 - z0) / 6));
       for (const s of [rx0, rx1]) {
-        G.quad(
-          [s, y0, z0], [s, y1, z1], [s, y1 - 1.0, z1], [s, y0 - 1.0, z0],
-          M.concrete, [s === rx0 ? -1 : 1, 0, 0],
-        );
+        const face = [s === rx0 ? -1 : 1, 0, 0];
+        for (let i = 0; i < pieces; i++) {
+          const a = z0 + ((z1 - z0) * i) / pieces;
+          const c = z0 + ((z1 - z0) * (i + 1)) / pieces;
+          const ya = y0 + ((y1 - y0) * i) / pieces;
+          const yc = y0 + ((y1 - y0) * (i + 1)) / pieces;
+          G.quad([s, ya, a], [s, yc, c], [s, 0, c], [s, 0, a], M.concrete, face);
+        }
       }
     };
     slope(za - rampLen, za, 0.1, DECK_Y);
@@ -386,7 +560,10 @@ function buildBridges() {
 /* Two tunnels under the west bank: the road dives under a hill beside the    */
 /* river and comes back out. Built as a box tube the terrain rises over.      */
 const TUNNELS = [
-  { x: -540, z0: -640, z1: -400, w: 9,  h: 5.4 },   // under the west link road
+  /* the inland portal stands clear of the bridge approach that reaches the
+     river on the same street: the hill over the tube would otherwise bury the
+     first metres of the ramp */
+  { x: -540, z0: -640, z1: -424, w: 9,  h: 5.4 },   // under the west link road
   { x: 540,  z0: 400,  z1: 640,  w: 9,  h: 5.4 },   // under the east industrial link
 ];
 function buildTunnels() {
@@ -452,7 +629,7 @@ function buildInterchange() {
 }
 
 /* ------------------------------------------------------------------- ground */
-function buildGround() {
+function buildGround() { // the land under the city
   /* The river is genuinely cut: per column we lay the land on both banks,    */
   /* then five slope bands descending from street level to the water, then    */
   /* the water itself. Nothing at street level crosses the river except the   */
@@ -468,10 +645,14 @@ function buildGround() {
       const cuts = [GZ0, GZ1].filter((z) => z > z0 && z < z1).sort((a, b) => a - b);
       let cur = z0;
       for (const cut of [...cuts, z1]) {
-        if (cut - cur > 0.5) {
-          const mid = (cur + cut) / 2;
+        /* not under a bridge approach: the approach is the surface there, and
+           the street that would otherwise be laid under it is a second surface
+           in the same cell (see ramps) */
+        for (const [a, b] of notUnderRamp(x, x + STEP, cur, cut)) {
+          if (b - a < 0.5) continue;
+          const mid = (a + b) / 2;
           const city = x + STEP / 2 > GX0 && x + STEP / 2 < GX1 && mid > GZ0 && mid < GZ1;
-          G.slab(x, cur, x + STEP, cut, 0, city ? M.asphalt : M.grass);
+          G.slab(x, a, x + STEP, b, 0, city ? M.asphalt : M.grass);
         }
         cur = cut;
       }
@@ -504,7 +685,7 @@ function buildGround() {
  *  parkland and forest, thick enough that the edge of the map reads as a wood
  *  rather than a cliff, with clearings so it is not a wall of trees either.
  * -------------------------------------------------------------------------*/
-function buildCountryside() {
+function buildCountryside() { // parks, farms and forest
   for (let x = -R + 26; x < R - 26; x += 32) {
     for (let z = -R + 26; z < R - 26; z += 32) {
       const tx = x + rr(-11, 11);
@@ -525,6 +706,9 @@ function buildCountryside() {
  * -------------------------------------------------------------------------*/
 const ISLE = { x: -170, rx: 92, rz: 46, terrace: 1.4 };
 const ISLE_TOP = ISLE.terrace + 5.4;
+/** the road onto the island: 9.2 m wide, and 26 m of ramp up to the terrace */
+const CAUSEWAY_HALF = 4.6;
+const CAUSEWAY_RUN = 26;
 
 /** The island's centre: on the river's centreline, where the water is widest. */
 function isleCentre() {
@@ -568,13 +752,13 @@ function buildIsland() {
 
 /** The road onto the island, and the ramp that climbs to it off the bank. */
 function buildCauseway(cx, cz) {
-  const half = 4.6;                    // a 9 m road: two lanes
+  const half = CAUSEWAY_HALF;          // a 9.2 m road: two lanes
   const x0 = ISLE.x - half;
   const x1 = ISLE.x + half;
   const y = ISLE.terrace;
   const zBank = cz - riverHalf(ISLE.x) - BANK;   // the top of the south bank
   const zIsle = cz - ISLE.rz * 0.82;             // the island's south shore
-  const rampTo = zBank - 26;                     // the ramp starts back on land
+  const rampTo = zBank - CAUSEWAY_RUN;           // the ramp starts back on land
 
   /* the ramp up from the street to the causeway */
   G.quad([x0, 0.05, rampTo], [x1, 0.05, rampTo], [x1, y, zBank], [x0, y, zBank], M.asphalt, [0, 1, 0]);
@@ -689,6 +873,7 @@ function streetTrees() {
       for (const s of [-1, 1]) {
         const tz = z + s * (AVE_HALF + 3.2);
         if (riverDist(x, tz) < riverHalf(x) + BANK + 12) continue;
+        if (onRamp(x, tz)) continue;                 // a bridge approach is there
         if (rnd() < 0.12) continue;                 // a gap where a door is
         tree(x + rr(-6, 6), tz, rr(0.85, 1.15));
       }
@@ -791,10 +976,10 @@ function line(along, fixed, from, to, opts = {}) {
     const b = Math.min(a + piece, to);
     const mid = (a + b) / 2;
     if (along === "x") {
-      if (inJunctionX(mid, 2) || offPavement(mid, fixed, bridgeX)) continue;
+      if (inJunctionX(mid, 2) || offPavement(mid, fixed, bridgeX) || onRamp(mid, fixed)) continue;
       G.slab(a, fixed - w, b, fixed + w, y, M.paint);
     } else {
-      if (inJunctionZ(mid, 2) || offPavement(fixed, mid, bridgeX)) continue;
+      if (inJunctionZ(mid, 2) || offPavement(fixed, mid, bridgeX) || onRamp(fixed, mid)) continue;
       G.slab(fixed - w, a, fixed + w, b, y, M.paint);
     }
   }
@@ -802,7 +987,7 @@ function line(along, fixed, from, to, opts = {}) {
 
 /** A zebra crossing: bars across the road, 60 cm of paint and 70 cm of road. */
 function zebra(x, z, span, alongX) {
-  if (offPavement(x, z, true)) return;
+  if (offPavement(x, z, true) || onRamp(x, z)) return;
   for (let a = -span; a < span - 0.7; a += 1.3) {
     if (alongX) G.slab(x + a, z - 2, x + a + 0.6, z + 2, PAINT_Y, M.paint);
     else G.slab(x - 2, z + a, x + 2, z + a + 0.6, PAINT_Y, M.paint);
@@ -816,7 +1001,7 @@ function zebra(x, z, span, alongX) {
  * crosses the half of the road the arriving cars are on.
  */
 function junctionPaint(x, z) {
-  if (offPavement(x, z, true)) return;
+  if (offPavement(x, z, true) || onRamp(x, z)) return;
   const padX = ST_HALF + 5;
   const padZ = AVE_HALF + 5;
   /* across the street, north and south of the box */

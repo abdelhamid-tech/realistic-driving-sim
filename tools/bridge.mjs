@@ -240,6 +240,21 @@ function gltfLoader(manager) {
   return loader;
 }
 
+/**
+ * A glTF read with that decoder, put away again when it is done. The decoder
+ * runs in a Web Worker, and a worker left standing keeps Bun's event loop
+ * alive: without this the build writes its files and then hangs for ever
+ * instead of exiting.
+ */
+async function readGltf(files, what) {
+  const loader = gltfLoader(managerFor(files));
+  try {
+    return await what(loader);
+  } finally {
+    loader.dracoLoader?.dispose();
+  }
+}
+
 /* ---------------------------------------------------- turning it to numbers */
 
 const baseColor = (color) => (color ? { r: color.r, g: color.g, b: color.b } : { r: 0.54, g: 0.56, b: 0.58 });
@@ -248,8 +263,8 @@ async function parseBytes(name, bytes, files) {
   const manager = managerFor(files);
   const e = ext(name);
   const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  if (e === "glb") return (await gltfLoader(manager).parseAsync(buf, "")).scene;
-  if (e === "gltf") return (await gltfLoader(manager).parseAsync(bytes.toString("utf8"), "")).scene;
+  if (e === "glb") return (await readGltf(files, (l) => l.parseAsync(buf, ""))).scene;
+  if (e === "gltf") return (await readGltf(files, (l) => l.parseAsync(bytes.toString("utf8"), ""))).scene;
   if (e === "obj") return new OBJLoader(manager).parse(bytes.toString("utf8"));
   if (e === "fbx") return new FBXLoader(manager).parse(buf, "");
   if (e === "dae") return new ColladaLoader(manager).parse(bytes.toString("utf8"), "").scene;
