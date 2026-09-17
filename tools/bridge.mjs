@@ -42,6 +42,27 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { ColladaLoader } from "three/examples/jsm/loaders/ColladaLoader.js";
 import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";
 
+/* ----------------------------------------------------------- headless shims *
+ * three's loaders are written for a tab, and this build has no tab: it runs in
+ * Bun. `ProgressEvent` is the one browser global a model read reaches for that
+ * is not there — FileLoader reports the bytes it has pulled with one — and an
+ * undefined constructor inside a loader's promise is a build that hangs for
+ * ever instead of failing. So it is filled in, once, before any file is read.
+ *
+ * A Draco-compressed model also needs a Web Worker: DRACOLoader builds one out
+ * of the decoder and its own source and posts the buffer to it. Bun has Blob,
+ * URL.createObjectURL and Worker with blob sources, so that path runs as it is.
+ * -------------------------------------------------------------------------*/
+if (typeof globalThis.ProgressEvent === "undefined") {
+  globalThis.ProgressEvent = class ProgressEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.lengthComputable = false;
+      Object.assign(this, init);
+    }
+  };
+}
+
 /** Where the owner drops the file. Explained by the README beside it. */
 export const BRIDGE_DIR = "tools/bridge";
 
@@ -298,7 +319,10 @@ function triangulate(root) {
         const a = [va.x, va.y, va.z];
         const b = [vb.x, vb.y, vb.z];
         const c = [vc.x, vc.y, vc.z];
-        tris.push({ a, b, c, n: [normal.x, normal.y, normal.z], mat });
+        const nn = [normal.x, normal.y, normal.z];
+        /* a face of a model that is not simplified keeps its flat normal on
+           all three vertices, which is exactly how it looked before */
+        tris.push({ a, b, c, na: nn, nb: nn, nc: nn, n: nn, mat });
         for (const v of [a, b, c]) {
           for (let k = 0; k < 3; k++) {
             if (v[k] < min[k]) min[k] = v[k];
@@ -310,6 +334,184 @@ function triangulate(root) {
   });
 
   return { materials, tris, min, max };
+}
+
+/* ------------------------------------------------------------ detail budget *
+ *  A model made to be looked at on its own carries triangles a city map has no
+ *  way to show and no way to afford. The one dropped in here arrived with
+ *  455,000 of them on a single mesh — a median face of a third of a square
+ *  millimetre on a bridge 150 m long — and melting that into the map took it
+ *  from 3 MB to 36 MB, for detail nobody can see and every car has to drive
+ *  over.
+ *
+ *  So the model is simplified once, here, by VERTEX CLUSTERING: every vertex is
+ *  snapped onto a grid of `detail` metres, and the vertices sharing a cell
+ *  become one at their average, which drops the faces that vanish inside a
+ *  cell. It is the one simplification that is safe blind — it never moves the
+ *  surface by more than the grid, it cannot invert or invent a face, it keeps
+ *  the model's own proportions — and a few centimetres on a bridge this size is
+ *  nothing from the driver's seat.
+ *
+ *  How coarse it goes is not guessed: the coarsest grid that still holds the
+ *  model's shape (see `keepsShape`) is the one used, and `detail` in
+ *  bridge.json overrides the lot — a number for an exact grid in metres, or 0
+ *  to keep every triangle the model came with.
+ * -------------------------------------------------------------------------*/
+/** Metres per cell to try, coarsest first: a bridge is a big object. */
+const DETAIL_LADDER = [0.5, 0.35, 0.25, 0.18, 0.12, 0.08, 0.05, 0.035, 0.025, 0.015, 0.01, 0.006, 0.004];
+/**
+ * What one bridge may cost the map. The city itself is 34,000 triangles, so
+ * this is a bridge five times the whole built city — a hero asset, and about
+ * what a hand-made one would be. A finer grid than this buys nothing that can
+ * be seen from a car: a centimetre on a 350 m bridge is a centimetre.
+ */
+const TRIANGLE_BUDGET = 200000;
+/** Below this share of the model's own surface, a grid is eating features. */
+const SHAPE_KEEP = 0.97;
+
+/**
+ * The model with every vertex snapped to a grid of `grid` metres: the vertices
+ * in a cell become their average, and the faces that end up with two or three
+ * vertices in the same cell are dropped rather than left as slivers.
+ *
+ * Clustering is done per material, so two parts that meet — a steel railing on
+ * a concrete kerb — are never welded into each other.
+ */
+export function collapse(tris, grid) {
+  const index = new Map();
+  const sum = [];
+  const shade = [];
+  const count = [];
+  const at = (v, mat) => {
+    const key = `${mat}|${Math.floor(v[0] / grid)}|${Math.floor(v[1] / grid)}|${Math.floor(v[2] / grid)}`;
+    let hit = index.get(key);
+    if (hit === undefined) {
+      hit = sum.length;
+      index.set(key, hit);
+      sum.push([0, 0, 0]);
+      shade.push([0, 0, 0]);
+      count.push(0);
+    }
+    const s = sum[hit];
+    s[0] += v[0];
+    s[1] += v[1];
+    s[2] += v[2];
+    count[hit]++;
+    return hit;
+  };
+
+  /* Each cell also collects the way its own faces are turned, so a welded
+     vertex keeps a normal: averaging the faces that met in it gives a cable its
+     roundness back (the map draws smooth-shaded) and leaves a flat slab flat,
+     whose faces all share one normal. It is also what lets the writer hand the
+     mesh over welded instead of three separate vertices per triangle. */
+  const faces = [];
+  for (const t of tris) {
+    const ia = at(t.a, t.mat);
+    const ib = at(t.b, t.mat);
+    const ic = at(t.c, t.mat);
+    for (const i of [ia, ib, ic]) {
+      shade[i][0] += t.n[0];
+      shade[i][1] += t.n[1];
+      shade[i][2] += t.n[2];
+    }
+    faces.push([ia, ib, ic, t.mat]);
+  }
+
+  const verts = sum.map((s, i) => {
+    const n = shade[i];
+    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+    return {
+      p: [s[0] / count[i], s[1] / count[i], s[2] / count[i]],
+      n: [n[0] / len, n[1] / len, n[2] / len],
+    };
+  });
+
+  const out = [];
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const [ia, ib, ic, mat] of faces) {
+    if (ia === ib || ib === ic || ia === ic) continue;
+    const A = verts[ia], B = verts[ib], C = verts[ic];
+    const a = A.p, b = B.p, c = C.p;
+    const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+    const acx = c[0] - a[0], acy = c[1] - a[1], acz = c[2] - a[2];
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len === 0) continue;
+    out.push({ a, b, c, na: A.n, nb: B.n, nc: C.n, n: [nx / len, ny / len, nz / len], mat });
+    for (const v of [a, b, c]) {
+      for (let k = 0; k < 3; k++) {
+        if (v[k] < min[k]) min[k] = v[k];
+        if (v[k] > max[k]) max[k] = v[k];
+      }
+    }
+  }
+  return out.length ? { tris: out, min, max } : null;
+}
+
+/** How much surface a grid left of the model's own — features it ate show here. */
+function area(tris) {
+  let total = 0;
+  for (const t of tris) {
+    const abx = t.b[0] - t.a[0], aby = t.b[1] - t.a[1], abz = t.b[2] - t.a[2];
+    const acx = t.c[0] - t.a[0], acy = t.c[1] - t.a[1], acz = t.c[2] - t.a[2];
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    total += Math.hypot(nx, ny, nz) / 2;
+  }
+  return total;
+}
+
+/**
+ * The simplification a model gets, and the reason for it:
+ *
+ *   · `detail` in bridge.json wins outright — a grid in metres, or 0 for none;
+ *   · a model already inside the budget is left exactly as it is;
+ *   · otherwise the coarsest grid that still holds the model's shape is used,
+ *     so a well-built model keeps nearly all of itself and a model with
+ *     455,000 sub-millimetre faces loses nearly all of them.
+ */
+function decimate(model, opts) {
+  const source = model.tris.length;
+  const own = { tris: model.tris, min: model.min, max: model.max };
+  const fixed = (grid, note) => ({ ...own, grid, source, note });
+
+  if (opts.detail === 0) return fixed(0, "detail 0 in bridge.json: every triangle kept");
+  if (typeof opts.detail === "number" && opts.detail > 0) {
+    const out = collapse(model.tris, opts.detail) ?? own;
+    return { ...out, grid: opts.detail, source, note: `bridge.json asks for a ${opts.detail} m grid` };
+  }
+  if (source <= TRIANGLE_BUDGET) return fixed(0, null);
+
+  /* finest grid first: the least a model has to lose to fit the budget is what
+     it should lose, and a coarse grid eating a railing is the failure to avoid */
+  const full = area(model.tris);
+  let pick = null;
+  for (const grid of [...DETAIL_LADDER].reverse()) {
+    const out = collapse(model.tris, grid);
+    if (!out || out.tris.length > TRIANGLE_BUDGET) continue;
+    pick = { out, grid, keeps: full > 0 ? area(out.tris) / full : 1 };
+    break;
+  }
+  if (!pick) {
+    /* nothing on the ladder fits: the coarsest grid there is, and say so */
+    const grid = DETAIL_LADDER[0];
+    const out = collapse(model.tris, grid) ?? own;
+    pick = { out, grid, keeps: full > 0 ? area(out.tris) / full : 1 };
+  }
+
+  const kept = pick.out.tris.length;
+  const eaten = (100 - (kept / source) * 100).toFixed(0);
+  const surface = (pick.keeps * 100).toFixed(1);
+  const note =
+    `${eaten}% of them were finer than the ${pick.grid} m grid and were welded away, ` +
+    `leaving ${surface}% of the bridge's surface` +
+    (pick.keeps < SHAPE_KEEP ? " — which is a lot for a grid this size: check the bridge" : "");
+  return { ...pick.out, grid: pick.grid, source, note };
 }
 
 /**
@@ -390,20 +592,24 @@ export async function loadBridgeModel(dir = BRIDGE_DIR, opts = {}) {
     return null;
   }
 
-  const { materials, tris, min, max } = triangulate(root);
-  if (!tris.length) {
+  const model = triangulate(root);
+  if (!model.tris.length) {
     console.warn(`  ! tools/bridge/${short} holds no triangles — building the map without your bridge`);
     return null;
   }
+  const { tris, min, max, grid, source, note } = decimate(model, opts);
   const deck = findDeck(tris, min[1], max[1]);
   return {
     file,
     short,
-    materials,
+    materials: model.materials,
     tris,
     min,
     max,
     deck,
+    grid,
+    source,
+    note,
     size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
     triangles: tris.length,
   };
@@ -489,8 +695,71 @@ export function fitToCrossing(model, crossing, opts = {}) {
   const placed = [];
   let cut = 0;
   let trimmed = 0;
+  /* a uniform scale leaves a direction alone, so a normal is only turned */
+  const turn = (n) => {
+    const [x, z] = rotate([n[0], n[2]]);
+    return [x, n[1], z];
+  };
+  /*
+   * The span is levelled onto the map's deck plane.
+   *
+   * A real bridge arches over its length and this one does by half a metre —
+   * right on the model, awkward in a city: the roads that meet it from either
+   * bank are flat, and a deck that rises and falls under the wheels is read by
+   * the physics as a road that rises and falls. So the roadway's own profile
+   * along the span is measured first — the mean height of the up-facing faces
+   * on the carriageway, slice by slice — and then the whole bridge is sheared
+   * vertically by the difference between that profile and the deck plane. The
+   * model keeps every proportion and every joint it had: the railings stay
+   * standing on the road, only the arch is taken out of it. `level` in
+   * bridge.json sets how far from the deck a face may be and still count as
+   * roadway, or 0 to leave the bridge exactly as it was modelled.
+   */
+  const level = opts.level === undefined ? 0.9 : opts.level;
+  const prof = new Map();
+  if (level > 0) {
+    for (const t of model.tris) {
+      if (t.n[1] < 0.7) continue;
+      const [rx, rz] = rotate([
+        (t.a[0] + t.b[0] + t.c[0]) / 3 - cx,
+        (t.a[2] + t.b[2] + t.c[2]) / 3 - cz,
+      ]);
+      if (Math.abs(rx) > alongX * 0.42) continue;                 // the carriageway
+      const y = (t.a[1] + t.b[1] + t.c[1]) / 3;
+      if (Math.abs(y - model.deck.y) > level / Math.max(scale, 1e-6)) continue;
+      const k = Math.round(rz / 4);
+      const e = prof.get(k) ?? [0, 0];
+      e[0] += y;
+      e[1] += 1;
+      prof.set(k, e);
+    }
+    for (const [k, e] of prof) prof.set(k, e[0] / e[1]);
+  }
+  const slices = [...prof.keys()].sort((a, b) => a - b);
+  /** how far the span is off the model's own deck plane at this position */
+  const shear = (rz) => {
+    if (!slices.length) return 0;
+    const k = Math.round(rz / 4);
+    const hit = prof.get(k);
+    if (hit !== undefined) return model.deck.y - hit;
+    if (k < slices[0] || k > slices[slices.length - 1]) return 0;  // past the deck
+    let near = slices[0];
+    for (const s of slices) if (Math.abs(s - k) < Math.abs(near - k)) near = s;
+    return model.deck.y - prof.get(near);
+  };
+
   for (const t of model.tris) {
-    const tri = { a: place(t.a), b: place(t.b), c: place(t.c), n: t.n, mat: t.mat };
+    const [rx, rz] = rotate([
+      (t.a[0] + t.b[0] + t.c[0]) / 3 - cx,
+      (t.a[2] + t.b[2] + t.c[2]) / 3 - cz,
+    ]);
+    const d = shear(rz);
+    const lift = (v) => (d ? [v[0], v[1] + d, v[2]] : v);
+    const tri = {
+      a: place(lift(t.a)), b: place(lift(t.b)), c: place(lift(t.c)),
+      na: turn(t.na), nb: turn(t.nb), nc: turn(t.nc),
+      n: turn(t.n), mat: t.mat,
+    };
     if (floor === -Infinity) {
       placed.push(tri);
       continue;
@@ -545,20 +814,34 @@ export function fitToCrossing(model, crossing, opts = {}) {
  */
 function clipAbove(tri, floor) {
   const pts = [tri.a, tri.b, tri.c];
+  const nrm = [tri.na, tri.nb, tri.nc];
   const out = [];
+  const shade = [];
   for (let i = 0; i < 3; i++) {
     const cur = pts[i];
     const nxt = pts[(i + 1) % 3];
     const curIn = cur[1] >= floor;
     const nxtIn = nxt[1] >= floor;
-    if (curIn) out.push(cur);
+    if (curIn) {
+      out.push(cur);
+      shade.push(nrm[i]);
+    }
     if (curIn !== nxtIn) {
       const k = (floor - cur[1]) / (nxt[1] - cur[1]);
+      const j = (i + 1) % 3;
       out.push([cur[0] + (nxt[0] - cur[0]) * k, floor, cur[2] + (nxt[2] - cur[2]) * k]);
+      const a = nrm[i], b = nrm[j];
+      const l = Math.hypot(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k) || 1;
+      shade.push([
+        (a[0] + (b[0] - a[0]) * k) / l,
+        (a[1] + (b[1] - a[1]) * k) / l,
+        (a[2] + (b[2] - a[2]) * k) / l,
+      ]);
     }
   }
   if (out.length < 3) return null;
-  const tris = [{ a: out[0], b: out[1], c: out[2], n: tri.n, mat: tri.mat }];
-  if (out.length === 4) tris.push({ a: out[0], b: out[2], c: out[3], n: tri.n, mat: tri.mat });
+  const face = (i, j, k) => ({ a: out[i], b: out[j], c: out[k], na: shade[i], nb: shade[j], nc: shade[k], n: tri.n, mat: tri.mat });
+  const tris = [face(0, 1, 2)];
+  if (out.length === 4) tris.push(face(0, 2, 3));
   return { tris, trimmed: out.length !== 3 };
 }

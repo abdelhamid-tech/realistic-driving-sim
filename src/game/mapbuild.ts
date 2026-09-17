@@ -27,6 +27,16 @@ const LAYERS = 4;
 const LAYER_MERGE = 0.55;
 /** A cell refuses to be reached by more than this above the car. Metres. */
 const MAX_RISE = 1.05;
+/**
+ * What a car drives straight onto: a kerb, a plate, a lip. Metres. Below the
+ * reach above, and the reason for it: a bridge carries railings half a metre
+ * over its roadway, and with only "the highest surface you can reach" a car
+ * would climb onto them and drive the length of the bridge in the air. So the
+ * nearest surface within a step up wins; the full reach is for the cases where
+ * there is nothing to step onto at all — a car landing on a deck from a jump,
+ * or meeting a bank that climbs faster than a step.
+ */
+const STEP_UP = 0.45;
 /** Bucket size for the wall lookup. Metres. */
 const BUCKET = 24;
 /** Half thickness given to a wall face. Metres — thick enough not to be
@@ -417,15 +427,18 @@ function pickLayer(F: MapField, i: number, j: number, refY: number) {
   const c = F.counts[idx];
   if (!c) return F.baseY;
   const lim = refY + MAX_RISE;
+  const step = refY + STEP_UP;
   const base = idx * LAYERS;
+  let near = -Infinity;
   let best = -Infinity;
   let lowest = Infinity;
   for (let k = 0; k < c; k++) {
     const h = F.layers[base + k];
     if (h < lowest) lowest = h;
+    if (h <= step && h > near) near = h;
     if (h <= lim && h > best) best = h;
   }
-  let h = best === -Infinity ? lowest : best;
+  let h = near !== -Infinity ? near : best !== -Infinity ? best : lowest;
   if (h > refY + MAX_RISE) h = refY;
   return h;
 }

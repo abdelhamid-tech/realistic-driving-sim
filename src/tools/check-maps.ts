@@ -36,11 +36,38 @@ const EXPECT: Record<string, Expectation> = {
           !(layersAt(F, 0, riverZAt(0)) ?? []).some((h) => h > 0.4 && h < 4.5),
         `levels near the centreline: ${(layersAt(F, 0, riverZAt(0)) ?? []).join(", ")}`,
       ],
-      [
-        "a bridge deck is drivable from above it",
-        near(sampleMap(F, 0, riverZAt(0), DECK_Y + 0.5)!, DECK_Y, 0.3),
-        `h=${sampleMap(F, 0, riverZAt(0), DECK_Y + 0.5)}`,
-      ],
+      (() => {
+        /* Drive the crossing the way a car does: carry the height the car is
+           at from one step to the next and ask the field for the surface
+           under it. A span arches and carries railings above it, so what is
+           asserted is not a millimetre of flat deck but that the car is on a
+           bridge, not in the river, from bank to bank — and that the surface
+           never jumps under it.
+           The drive has to start on the street, before the foot of the ramp:
+           begun part-way up the approach the car sits at street level under a
+           ramp that is already above its bumper, cannot step up onto it, and
+           drives the ground to the water instead. That is a real failure, but
+           it is the check starting in the wrong place, not the map. */
+        const zc = riverZAt(0);
+        const foot = riverHalfAt(0) + BANK + 4 + RAMP_LEN + 30;
+        let y = 0.15;
+        const run: number[] = [];
+        for (let z = zc - foot; z <= zc + foot; z += 4) {
+          const h = sampleMap(F, 0, z, y);
+          if (h === null) continue;
+          if (z > zc - 195 && z < zc + 195) run.push(h);
+          y = h;
+        }
+        const onDeck = run.every((h) => Math.abs(h - DECK_Y) < 1.6);
+        const steady = run.every((h, i) => i === 0 || Math.abs(h - run[i - 1]) < 0.8);
+        const worst = Math.max(...run.map((h, i) => (i ? Math.abs(h - run[i - 1]) : 0)));
+        return [
+          "a bridge deck is drivable from bank to bank",
+          run.length >= 90 && onDeck && steady,
+          `${run.length} steps across the crossing, ${Math.min(...run).toFixed(2)}–${Math.max(...run).toFixed(2)} m of deck, ` +
+            `worst step ${worst.toFixed(2)} m`,
+        ] as [string, boolean, string];
+      })(),
       [
         "the bank slopes down, not a cliff at the water",
         (layersAt(F, 0, riverZAt(0) - riverHalfAt(0) - 12) ?? []).length > 0,
@@ -62,8 +89,10 @@ const EXPECT: Record<string, Expectation> = {
 
 const near = (a: number, b: number, tol: number) => Math.abs(a - b) < tol;
 
-/* the river's geometry, mirrored from tools/build-riverbend.mjs for assertions */
+/* the river's geometry and the crossings' approaches, mirrored from
+   tools/build-riverbend.mjs for assertions */
 const MEAN_Z = 0, AMP = 260, WAVELEN = 1450, RIVER_HALF_BASE = 95, RIVER_HALF_WIDEN = 28;
+const BANK = 73, RAMP_LEN = 90;
 const riverZAt = (x: number) => MEAN_Z + AMP * Math.sin((x / WAVELEN) * Math.PI * 2);
 const riverHalfAt = (x: number) => RIVER_HALF_BASE + RIVER_HALF_WIDEN * Math.cos((x / WAVELEN) * Math.PI * 4 + 1.1);
 const DECK_Y = 9;

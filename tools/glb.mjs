@@ -4,13 +4,61 @@
  * normals as float32, indices as uint32.
  */
 
+/* every buffer view starts on a four-byte boundary */
 const ALIGN = 4;
 
 function alignUp(n) {
   return (n + ALIGN - 1) & ~(ALIGN - 1);
 }
 
-export function writeGLB({ materials, primitives, generator = "open-city-tools" }) {
+/**
+ * The same triangles, with every vertex that is already there written once.
+ *
+ * The builder hands over three vertices per triangle because that is how a
+ * triangle is made — but a quad's diagonal, a wall's corner and every coplanar
+ * pair in the city hand over the same numbers twice, and each repeat costs 32
+ * bytes. Welding identical (position, normal, uv) triples into one vertex and
+ * pointing the index at it changes nothing that can be seen — they were the
+ * same vertex — and takes a third to a half off every map the game ships.
+ *
+ * Positions are welded only when the whole vertex matches, so a hard corner
+ * keeps its two normals and the shading stays exactly as it was.
+ */
+function welded(prim) {
+  const { positions, normals, uvs, indices } = prim;
+  const hasUv = !!uvs;
+  const seen = new Map();
+  const pos = [];
+  const nrm = [];
+  const uv = [];
+  const index = new Uint32Array(indices.length);
+  for (let i = 0; i < indices.length; i++) {
+    const v = indices[i] * 3;
+    const u = indices[i] * 2;
+    const key = hasUv
+      ? `${positions[v]},${positions[v + 1]},${positions[v + 2]}|${normals[v]},${normals[v + 1]},${normals[v + 2]}|${uvs[u]},${uvs[u + 1]}`
+      : `${positions[v]},${positions[v + 1]},${positions[v + 2]}|${normals[v]},${normals[v + 1]},${normals[v + 2]}`;
+    let hit = seen.get(key);
+    if (hit === undefined) {
+      hit = pos.length / 3;
+      seen.set(key, hit);
+      pos.push(positions[v], positions[v + 1], positions[v + 2]);
+      nrm.push(normals[v], normals[v + 1], normals[v + 2]);
+      if (hasUv) uv.push(uvs[u], uvs[u + 1]);
+    }
+    index[i] = hit;
+  }
+  return {
+    positions: new Float32Array(pos),
+    normals: new Float32Array(nrm),
+    uvs: hasUv ? new Float32Array(uv) : null,
+    indices: index,
+    material: prim.material,
+  };
+}
+
+export function writeGLB({ materials, primitives: given, generator = "open-city-tools" }) {
+  const primitives = given.map(welded);
   const chunks = [];
   const bufferViews = [];
   const accessors = [];
@@ -185,6 +233,38 @@ export function geometryBuilder(materials) {
     bucket.count += 3;
   }
 
+  /**
+   * Triangle whose three vertices carry their own normals — a piece of a
+   * triangle that came from somewhere else (the owner's bridge is baked this
+   * way) where a shared normal per vertex is what keeps a curved cable round
+   * and lets the writer weld neighbours back together.
+   */
+  function triN(a, b, c, mat, na, nb, nc) {
+    const bucket = buckets[mat];
+    sub(b, a, p);
+    sub(c, a, q);
+    cross(p, q, n);
+    norm(n);
+    const base = bucket.count;
+    const doUv = bucket.uvScale > 0;
+    const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+    const shades = [na, nb, nc];
+    let i = 0;
+    for (const v of [a, b, c]) {
+      bucket.positions.push(v[0], v[1], v[2]);
+      const s = shades[i++];
+      bucket.normals.push(s[0], s[1], s[2]);
+      if (doUv) {
+        const u = 1 / bucket.uvScale;
+        if (ay >= ax && ay >= az) bucket.uvs.push(v[0] * u, v[2] * u);
+        else if (ax >= az) bucket.uvs.push(v[2] * u, v[1] * u);
+        else bucket.uvs.push(v[0] * u, v[1] * u);
+      }
+    }
+    bucket.indices.push(base, base + 1, base + 2);
+    bucket.count += 3;
+  }
+
   /** Quad, wound as given, flipped if `hint` says the normal points inwards. */
   function quad(a, b, c, d, mat, hint) {
     tri(a, b, c, mat, hint);
@@ -236,5 +316,5 @@ export function geometryBuilder(materials) {
       .filter((p) => p.indices.length > 0);
   }
 
-  return { tri, quad, box, slab, primitives, triangles: () => buckets.reduce((n, b) => n + b.count / 3, 0) };
+  return { tri, triN, quad, box, slab, primitives, triangles: () => buckets.reduce((n, b) => n + b.count / 3, 0) };
 }
