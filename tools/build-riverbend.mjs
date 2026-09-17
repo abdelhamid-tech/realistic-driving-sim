@@ -112,9 +112,19 @@ function riverCentre(x) {
 function riverHalf(x) {
   return RIVER_HALF_BASE + RIVER_HALF_WIDEN * Math.cos((x / WAVELEN) * Math.PI * 4 + 1.1);
 }
-/** signed distance from a point to the river's centreline (metres, approx) */
+/**
+ * Distance from a point to the river's centreline. The centreline runs along x
+ * (it only meanders gently), so the distance across it is the distance in z.
+ *
+ * It used to be `hypot(x, z - centre)`: the distance to the *point* where the
+ * centreline crosses x = 0, which grows with |x|. Every guard written against
+ * it — "skip anything in the river or on its bank" — was therefore true only
+ * near x = 0 and silently false out along the banks, which is how a block's
+ * kerb plate came to be laid across the water five kilometres east of the
+ * middle of the map.
+ */
 function riverDist(x, z) {
-  return Math.hypot(x - 0, z - riverCentre(x));
+  return Math.abs(z - riverCentre(x));
 }
 function inRiver(x, z) {
   return riverDist(x, z) < riverHalf(x);
@@ -181,6 +191,49 @@ function dryPlate(x0, z0, x1, z1, step = 8) {
     }
   }
 }
+
+/* ------------------------------- the city's ground stops at the water *
+ *  A block's kerb plate, a park's grass, a wood's floor: each is a flat plate
+ *  laid at street level over a whole block, and each is laid from a different
+ *  place (buildDistricts, buildPark, buildForest). A block's middle can be on
+ *  dry land while a corner of it reaches across the water — and a plate laid
+ *  over the whole block is then a concrete ledge hanging in the air over the
+ *  river, which the engine reads as ground a car can drive out onto.
+ *
+ *  So the rule is enforced once, where such plates are drawn, rather than in
+ *  each of the places that lay one: a slab, or a box no taller than a kerb,
+ *  that measures more than a hundred metres each way and sits at street level,
+ *  is laid in strips that stop at the bank instead of over the whole rectangle.
+ *
+ *  Nothing else in the city matches that shape. A building is tall, a walkway
+ *  is narrow, a quay is a strip along the river, a bridge deck is nine metres
+ *  up, and the water is laid below street level. What is left is the city's
+ *  own ground — the one thing that must never be over the water.
+ * -------------------------------------------------------------------------*/
+const PLATE_SPAN = 100;   // metres each way: wider than any building lot
+const slabRaw = G.slab;
+const boxRaw = G.box;
+/** the [x0, z0, x1, z1] pieces of a rectangle that are over land, not water */
+function landPieces(x0, z0, x1, z1, step = 8) {
+  const out = [];
+  const bx = Math.max(x0, x1), bz = Math.max(z0, z1);
+  for (let x = Math.min(x0, x1); x < bx; x += step) {
+    const xs = Math.min(x + step, bx);
+    for (const [a, b] of drySpans((x + xs) / 2, Math.min(z0, z1), bz)) out.push([x, a, xs, b]);
+  }
+  return out;
+}
+G.slab = (x0, z0, x1, z1, y, mat) => {
+  const plate = Math.abs(x1 - x0) > PLATE_SPAN && Math.abs(z1 - z0) > PLATE_SPAN;
+  if (!plate || y < -1 || y > 1) return slabRaw(x0, z0, x1, z1, y, mat);
+  for (const [x, a, xs, b] of landPieces(x0, z0, x1, z1)) slabRaw(x, a, xs, b, y, mat);
+};
+G.box = (x0, y0, z0, x1, y1, z1, mat, opts) => {
+  const plate =
+    Math.abs(x1 - x0) > PLATE_SPAN && Math.abs(z1 - z0) > PLATE_SPAN && y1 - y0 < 1.5;
+  if (!plate || y0 < -1 || y0 > 1) return boxRaw(x0, y0, z0, x1, y1, z1, mat, opts);
+  for (const [x, a, xs, b] of landPieces(x0, z0, x1, z1)) boxRaw(x, y0, a, xs, y1, b, mat, opts);
+};
 
 /* a deterministic shuffle so the city is the same every build */
 let seed = 20260915;
@@ -358,15 +411,25 @@ function notUnderRamp(x0, x1, z0, z1) {
   return spans;
 }
 
-/** A road deck from x0 to x1 at height y, with kerbs, over whatever is below */
-function deck(x0, x1, half, y, mat = M.asphalt) {
-  G.quad(
-    [x0, y, -R + 2], [x1, y, -R + 2], [x1, y, R - 2], [x0, y, R - 2], mat, [0, 1, 0],
-  );
-  /* edge kerbs: the drop to the water is fenced by real geometry */
+/**
+ * A road deck from x0 to x1 at height y, carrying its road across the water
+ * from z0 to z1 and stopping there.
+ *
+ * It used to be laid from -R to R — the whole length of the map — so every
+ * crossing kept a road at deck height hanging over the streets either side of
+ * the river for most of a kilometre, on nothing. A bridge carries its road
+ * from one bank to the other; the ramps are what climbs to it at each end.
+ *
+ * The kerbs are the drop to the water fenced by real geometry: one along each
+ * side of the deck for the length of the crossing, not two across the ends of
+ * a strip that ran off the map.
+ */
+function deck(x0, x1, z0, z1, y, mat = M.asphalt) {
+  G.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], mat, [0, 1, 0]);
   for (const s of [-1, 1]) {
-    const z0 = s === -1 ? -R + 2 : R - 2 - 0.5;
-    G.box(x0, y - DECK_T, z0, x1, y + 0.12, z0 + 0.5, M.concrete);
+    const a = s < 0 ? x0 - 0.45 : x1;
+    const b = s < 0 ? x0 : x1 + 0.45;
+    G.box(a, y - DECK_T, z0, b, y + 0.12, z1, M.concrete);
   }
 }
 
@@ -389,7 +452,7 @@ function buildBridges() {
     const rx0 = b.x - roadHalf;
     const rx1 = b.x + roadHalf;
     if (!custom) {
-      deck(x0, x1, b.half, DECK_Y);
+      deck(x0, x1, za, zb, DECK_Y);
     } else {
       /* The roadway across the owner's bridge: the map lays its own carriageway
          over the span, exactly as it does for every crossing built from code,
@@ -722,6 +785,22 @@ function isleEdge(t) {
   return [cx + Math.cos(t) * ISLE.rx * wobble, cz + Math.sin(t) * ISLE.rz * wobble];
 }
 
+/**
+ * How high the island's own ground is, `k` of the way out from its centre.
+ *
+ * The terrace is flat — it is where the causeway lands, where the car park is
+ * parked and where the path runs, so all of that is one surface a car can
+ * drive — and the hill rises out of the flat part beyond the step band. What
+ * stands on the island is placed with this, so a tree on the hill stands on
+ * the hill rather than buried in it or floating over it.
+ */
+function isleHeight(k) {
+  if (k >= 0.5) return ISLE.terrace;
+  if (k >= 0.42) return ISLE.terrace + 0.5 * ((0.5 - k) / 0.08);
+  if (k <= 0.07) return ISLE_TOP;
+  return ISLE.terrace + 0.5 + (ISLE_TOP - ISLE.terrace - 0.5) * ((0.42 - k) / 0.35);
+}
+
 function buildIsland() {
   const [cx, cz] = isleCentre();
   const N = 72;
@@ -737,13 +816,26 @@ function buildIsland() {
     G.quad(at(t0, 1, WATER_Y + 0.12), at(t1, 1, WATER_Y + 0.12), at(t1, 0.9, 0.45), at(t0, 0.9, 0.45), M.sand, [0, 1, 0]);
     G.quad(at(t0, 0.9, 0.45), at(t1, 0.9, 0.45), at(t1, 0.82, ISLE.terrace), at(t0, 0.82, ISLE.terrace), M.sand, [0, 1, 0]);
     /* the terrace, and the hill rising out of it */
-    G.quad(at(t0, 0.82, ISLE.terrace), at(t1, 0.82, ISLE.terrace), at(t1, 0.42, ISLE.terrace + 0.5), at(t0, 0.42, ISLE.terrace + 0.5), M.grass, [0, 1, 0]);
+    G.quad(at(t0, 0.82, ISLE.terrace), at(t1, 0.82, ISLE.terrace), at(t1, 0.5, ISLE.terrace), at(t0, 0.5, ISLE.terrace), M.grass, [0, 1, 0]);
+    G.quad(at(t0, 0.5, ISLE.terrace), at(t1, 0.5, ISLE.terrace), at(t1, 0.42, ISLE.terrace + 0.5), at(t0, 0.42, ISLE.terrace + 0.5), M.grass, [0, 1, 0]);
     G.quad(at(t0, 0.42, ISLE.terrace + 0.5), at(t1, 0.42, ISLE.terrace + 0.5), at(t1, 0.07, ISLE_TOP), at(t0, 0.07, ISLE_TOP), M.grass, [0, 1, 0]);
     /* the very top, a fan so the hill has no hole in it */
     G.tri(at(t0, 0.07, ISLE_TOP), at(t1, 0.07, ISLE_TOP), [cx, ISLE_TOP, cz], M.grass, [0, 1, 0]);
     /* a gravel path round the terrace */
     const p0 = 0.66, p1 = 0.72;
     G.quad(at(t0, p0, ISLE.terrace + 0.02), at(t1, p0, ISLE.terrace + 0.02), at(t1, p1, ISLE.terrace + 0.06), at(t0, p1, ISLE.terrace + 0.06), M.sand, [0, 1, 0]);
+  }
+
+  /* The hill's own wood, standing on the hill. The spots the park records for
+     its trees are recorded at terrace height, and a tree standing on ground
+     that rises five metres above that spot is a tree buried in the hillside —
+     so the hill is wooded here, where its own height is known. */
+  for (let n = 0; n < 40; n++) {
+    const t = rr(0, Math.PI * 2);
+    const k = rr(0.1, 0.48);
+    const [ex, ez] = isleEdge(t);
+    if (Math.hypot(cx + (ex - cx) * k - ISLE.x, cz + (ez - cz) * k - cz) < 20) continue;
+    spot("tree", cx + (ex - cx) * k, isleHeight(k) + 0.06, cz + (ez - cz) * k, 0, rr(0.9, 1.6));
   }
 
   buildCauseway(cx, cz);
@@ -778,8 +870,12 @@ function buildCauseway(cx, cz) {
     G.box(x0 + 0.8, WATER_Y - 4, z, x1 - 0.8, y - 0.45, z + 1.7, M.concrete);
   }
   paintRoadZ(ISLE.x, half, zBank, zIsle, () => y);
+  /* the causeway's lamps stand on the causeway: put at kerb height they would
+     be buried under a deck that rides 1.4 m above the street */
   for (let z = zBank + 12; z < zIsle - 6; z += 24) {
-    for (const s of [-1, 1]) lamp(ISLE.x + s * (half - 0.9), z, s > 0 ? Math.PI : 0);
+    for (const s of [-1, 1]) {
+      spot("lamp", ISLE.x + s * (half - 0.9), y, z, -(s > 0 ? Math.PI : 0) - Math.PI / 2);
+    }
   }
 }
 
@@ -788,8 +884,12 @@ function buildIslandPark(cx, cz) {
   const y = ISLE.terrace;
   const park = 26;
 
-  /* the car park at the end of the causeway, bays painted on it */
-  const pz = cz - ISLE.rz * 0.62;
+  /* The car park at the end of the causeway, bays painted on it. It sits on
+     the flat part of the terrace — 0.5 to 0.82 of the way out is flat, and the
+     hill's foot is at 0.5 — so the deck the causeway lands on, the bays, the
+     grass between them and the path are one surface at one height a car can
+     drive and park on, instead of a slab laid across the foot of the hill. */
+  const pz = cz - ISLE.rz * 0.74;
   G.slab(cx - park / 2, pz - 8, cx + park / 2, pz + 8, y + 0.04, M.asphalt);
   for (let dx = -park / 2 + 1.4; dx < park / 2 - 3; dx += 2.8) {
     G.slab(cx + dx, pz - 7.6, cx + dx + 0.12, pz - 2.6, y + 0.07, M.paint);
@@ -797,8 +897,9 @@ function buildIslandPark(cx, cz) {
   for (let dx = -park / 2 + 1.4; dx < park / 2 - 3; dx += 2.8) {
     G.slab(cx + dx, pz + 2.6, cx + dx + 0.12, pz + 7.6, y + 0.07, M.paint);
   }
-  lamp(cx - park / 2 + 1, pz - 7, 0);
-  lamp(cx + park / 2 - 1, pz + 7, Math.PI);
+  /* the car park's own lamps stand on the car park, not on the street below */
+  spot("lamp", cx - park / 2 + 1, y + 0.04, pz - 7, -Math.PI / 2);
+  spot("lamp", cx + park / 2 - 1, y + 0.04, pz + 7, -1.5 * Math.PI);
 
   /* a pier on the north shore, out into the river on its own posts */
   const py = y - 0.5;
@@ -836,7 +937,7 @@ function buildIslandPark(cx, cz) {
   G.box(lx - 1.6, y + 12.5, lz - 1.6, lx + 1.6, y + 15.4, lz + 1.6, M.glass, { skip: ["bottom"] });
   G.box(lx - 1.9, y + 15.4, lz - 1.9, lx + 1.9, y + 16.2, lz + 1.9, M.roof, { skip: ["bottom"] });
   G.box(lx - 0.35, y + 16.2, lz - 0.35, lx + 0.35, y + 17.4, lz + 0.35, M.steel, { skip: ["bottom"] });
-  const LIGHTHOUSE = [lx, lz];
+  const LIGHTHOUSE = [lx, lz];   // the tower, kept clear of trees
 
   /* the park itself: trees on the hill, benches and planting along the path */
   for (let k = 0; k < 46; k++) {
