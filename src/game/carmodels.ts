@@ -80,66 +80,6 @@ const P = {
  *  THE CARS
  * -------------------------------------------------------------------------*/
 export const CAR_LIBRARY: CarEntry[] = [
-  {
-    id: "458-italia",
-    name: "458 ITALIA",
-    klass: "Mid-engine V8 coupé",
-    detail: "Rigged wheels · loads in about a second",
-    url: "models/ferrari-458.glb",
-    bytes: 1681572,
-    author: "vicent091036 · shipped with three.js",
-    license: "CC BY 4.0",
-    physics: {
-      ...P.GT,
-      name: "458 ITALIA",
-      klass: "Mid-engine V8 coupé",
-      torqueNm: 540,
-      powerKw: 419,
-      grip: 1.30,
-    },
-  },
-  {
-    id: "khr-concept",
-    name: "KHR CONCEPT",
-    klass: "Concept car",
-    detail: "Full interior · 445 parts · the heavy one",
-    url: "models/khr-concept.glb",
-    bytes: 11778688,
-    author: "Khronos glTF Sample Assets · source asset by Unity Fan",
-    license: "CC0 / public domain",
-    physics: {
-      ...P.GT,
-      name: "KHR CONCEPT",
-      klass: "Concept car",
-      mass: 1460,
-      torqueNm: 720,
-      powerKw: 460,
-      grip: 1.22,
-      downforce: 0.9,
-      zeroTo100: 3.4,
-    },
-  },
-  {
-    id: "street-sedan",
-    name: "STREET SEDAN",
-    klass: "Lowered sedan",
-    detail: "Light model · the one that always loads",
-    url: "models/street-sedan.glb",
-    bytes: 167272,
-    author: "Babylon.js sample assets",
-    license: "free sample asset",
-    physics: {
-      ...P.SEDAN,
-      name: "STREET SEDAN",
-      klass: "Lowered sedan",
-      drivetrain: "rwd",
-      mass: 1420,
-      torqueNm: 430,
-      grip: 1.14,
-      drag: 0.33,
-    },
-  },
-
   /* -------------------------------------------------------------------------
    *  YOUR OWN MODELS — uncomment, point at the file you dropped in
    *  public/models/, and give it the physics you want.
@@ -170,8 +110,8 @@ export const CAR_PRESETS: { id: string; label: string }[] = [
   { id: "bus", label: "Bus" },
 ];
 
-/** The car the game starts in. */
-export const DEFAULT_CAR_ID = "458-italia";
+/** The car the game starts in — the first entry of the library, imported or fallback. */
+export const DEFAULT_CAR_ID = "";
 
 /**
  * Cars the owner has imported from /import. They are appended to the built-in
@@ -189,6 +129,8 @@ export interface ImportedCar {
   turn: number;
   /** which preset this car drives like */
   preset: string;
+  /** top-speed multiplier the owner chose on /import, 0.5..2 */
+  speed: number;
   /**
    * The name of the file that was stored — for an import that arrived as FBX,
    * OBJ or a zip, this is the .glb the converter wrote, which is what the
@@ -207,6 +149,7 @@ export function isImportedCarId(id: string) {
 /** Turn an imported-car row into a full garage entry, physics preset applied. */
 export function importedCarEntry(car: ImportedCar): CarEntry {
   const base = (VEHICLES as Record<string, VehicleSpec | undefined>)[car.preset] ?? VEHICLES.gt;
+  const speed = car.speed && car.speed > 0 ? car.speed : 1;
   return {
     id: importedCarId(car.id),
     name: car.name,
@@ -217,7 +160,15 @@ export function importedCarEntry(car: ImportedCar): CarEntry {
     author: car.author,
     license: car.license,
     turn: car.turn,
-    physics: { ...base, name: car.name, klass: car.klass },
+    physics: {
+      ...base,
+      name: car.name,
+      klass: car.klass,
+      /* the owner's speed dial: torque and the top-speed governor scale with it */
+      torqueNm: base.torqueNm * speed,
+      powerKw: base.powerKw * speed,
+      topSpeedKph: Math.round(base.topSpeedKph * speed),
+    },
   };
 }
 

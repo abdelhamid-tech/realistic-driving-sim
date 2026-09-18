@@ -21,13 +21,13 @@ That is the whole job: the wheels are found by name and rigged onto the real
 suspension, the body is measured and scaled to the wheelbase of its physics
 block, and it appears in the garage for every player.
 
-## The three shipped cars live here too
+## The old shipped cars are gone
 
-`ferrari-458.glb`, `khr-concept.glb` and `street-sedan.glb` are vendored in this
-folder rather than pulled from a CDN. That is deliberate: a game on CrazyGames
-has to load from files in its own bundle, a third-party host can disappear or
-throttle, and a cross-origin fetch is one more thing that can fail on a player's
-machine. Nothing in the game reaches outside this bundle for a model.
+`ferrari-458.glb`, `khr-concept.glb` and `street-sedan.glb` were removed at the
+owner's request — the garage now carries only what is imported on /import.
+Anything dropped in this folder and registered in `src/game/carmodels.ts` is
+served locally, which is what a CrazyGames build requires: no cross-origin
+fetch, no third-party host that can disappear.
 
 Players still cannot add, replace or import a car themselves: the library in
 `src/game/carmodels.ts` is the only list. Cars the owner imports from `/import`

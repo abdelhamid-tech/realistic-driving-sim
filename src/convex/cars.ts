@@ -32,6 +32,7 @@ export const list = query({
         bytes: row.bytes,
         preset: row.preset,
         turn: row.turn ?? 0,
+        speed: row.speed ?? 1,
         klass: row.klass ?? "Imported car",
         createdAt: row.createdAt,
         url: await ctx.storage.getUrl(row.storageId),
@@ -61,6 +62,7 @@ export const register = mutation({
     bytes: v.number(),
     preset: v.string(),
     turn: v.optional(v.number()),
+    speed: v.optional(v.number()),
     klass: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -72,6 +74,7 @@ export const register = mutation({
       bytes: args.bytes,
       preset: args.preset,
       turn: args.turn ?? 0,
+      speed: args.speed ?? 1,
       klass: args.klass?.trim().slice(0, 60) || undefined,
       createdAt: Date.now(),
     });
@@ -85,6 +88,7 @@ export const tune = mutation({
     id: v.id("importedCars"),
     preset: v.optional(v.string()),
     turn: v.optional(v.number()),
+    speed: v.optional(v.number()),
     name: v.optional(v.string()),
     klass: v.optional(v.string()),
   },
@@ -93,6 +97,7 @@ export const tune = mutation({
     const patch: Record<string, unknown> = {};
     if (args.preset !== undefined) patch.preset = args.preset;
     if (args.turn !== undefined) patch.turn = Math.max(-1, Math.min(360, args.turn));
+    if (args.speed !== undefined) patch.speed = Math.max(0.5, Math.min(2, args.speed));
     if (args.name !== undefined && args.name.trim()) patch.name = args.name.trim().slice(0, 40);
     if (args.klass !== undefined) patch.klass = args.klass.trim().slice(0, 60) || undefined;
     await ctx.db.patch(args.id, patch);

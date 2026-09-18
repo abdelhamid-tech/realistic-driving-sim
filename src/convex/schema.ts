@@ -103,6 +103,8 @@ const schema = defineSchema(
       preset: v.string(),
       /** degrees; 180 for a model the rigger points backwards */
       turn: v.optional(v.number()),
+      /** top-speed multiplier the owner chose, 0.5..2 (1 = the preset's own) */
+      speed: v.optional(v.number()),
       /** the one-line class shown on the garage card */
       klass: v.optional(v.string()),
       createdAt: v.number(),

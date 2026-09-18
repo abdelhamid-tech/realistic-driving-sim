@@ -39,6 +39,8 @@ export interface PlayerProfile {
   net: boolean;
   /** graphics tier the player pinned, or -1 to let the game measure it */
   quality: number;
+  /** whether the desktop telemetry panel is on the screen */
+  telemetry: boolean;
 }
 
 export const DEFAULT_PROFILE: PlayerProfile = {
@@ -49,6 +51,7 @@ export const DEFAULT_PROFILE: PlayerProfile = {
   volume: 0.5,
   net: true,
   quality: -1,
+  telemetry: true,
 };
 
 let cache: PlayerProfile | null = null;
@@ -75,6 +78,7 @@ export function loadProfile(): PlayerProfile {
     volume: num(parsed.volume, DEFAULT_PROFILE.volume, 0, 1),
     net: typeof parsed.net === "boolean" ? parsed.net : DEFAULT_PROFILE.net,
     quality: Math.round(num(parsed.quality, DEFAULT_PROFILE.quality, -1, 2)),
+    telemetry: typeof parsed.telemetry === "boolean" ? parsed.telemetry : DEFAULT_PROFILE.telemetry,
   };
   return cache;
 }

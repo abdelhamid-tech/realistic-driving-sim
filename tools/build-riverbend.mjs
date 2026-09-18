@@ -27,6 +27,17 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { geometryBuilder, writeGLB } from "./glb.mjs";
 import { BRIDGE_DIR, bridgeOptions, fitToCrossing, loadBridgeModel } from "./bridge.mjs";
+import { loadBuildings, buildingPalette, bakeBuilding } from "./buildings.mjs";
+
+/* --------------------------------------------------- the owner's buildings *
+ *  The models in public/models/buildings/ — dropped in by the owner — replace
+ *  the towers, homes, halls and warehouses the city used to draw itself. They
+ *  are baked as real triangles on the same lots, so their walls are solid and
+ *  their roofs are drivable-by-collision exactly like the rest of the city. */
+const OWN_BUILDINGS = await loadBuildings();
+const OWN_BUILDING_PALETTE = buildingPalette(OWN_BUILDINGS.byName);
+/** where the buildings' own materials start, once appended */
+let BLD_MAT_BASE = -1;
 
 /* ------------------------------------------------------------------ palette */
 const BASE_MATERIALS = [
@@ -83,8 +94,9 @@ if (bridgeModel) {
   }
 }
 
-/** the city's palette, plus whatever colours the owner's bridge arrived in */
-const MATERIALS = [...BASE_MATERIALS, ...bridgePalette];
+/** the city's palette, the owner's bridge colours, and the owner's buildings */
+const MATERIALS = [...BASE_MATERIALS, ...bridgePalette, ...OWN_BUILDING_PALETTE];
+BLD_MAT_BASE = BASE_MATERIALS.length + bridgePalette.length;
 /** where the bridge's own materials start in that list */
 const BRIDGE_PALETTE = BASE_MATERIALS.length;
 /** the material index to draw one triangle of the owner's bridge with */
@@ -94,7 +106,7 @@ const M = Object.fromEntries(MATERIALS.map((m, i) => [m.name, i]));
 const G = geometryBuilder(MATERIALS);
 
 /* -------------------------------------------------------------- dimensions */
-const R = 900;                 // the map is a 1800 × 1800 m square
+const R = 1200;                // the map is a 2400 × 2400 m square — GTA scale
 const KERB = 0.15;
 const BANK = 46;               // half-width of the landscaped banks
 const WATER_Y = -3.5;
@@ -741,6 +753,23 @@ function buildGround() { // the land under the city
     /* the water, between the two innermost slope ends */
     G.slab(x, zc - half, x + STEP, zc + half, WATER_Y, M.water);
   }
+  /* the land beyond the map: fields out to the fog, so the world has no edge
+     a player can fall off or see past — the way an open city reads */
+  const OUT = 2600;
+  for (let x = -OUT; x < OUT; x += 60) {
+    G.slab(x, -OUT, x + 60, -R, 0, M.grass);
+    G.slab(x, R, x + 60, OUT, 0, M.grass);
+  }
+  for (let z = -R; z < R; z += 60) {
+    G.slab(-OUT, z, -R, z + 60, 0, M.grass);
+    G.slab(R, z, OUT, z + 60, 0, M.grass);
+  }
+  /* a treeline at the world's edge, so the horizon reads as forest */
+  for (let k = 0; k < 900; k++) {
+    const a = rnd() * Math.PI * 2;
+    const d = R + 40 + rnd() * 380;
+    tree(Math.cos(a) * d, Math.sin(a) * d, rr(1.4, 2.4));
+  }
 }
 
 /* ---------------------------------------------------------- the countryside *
@@ -1026,11 +1055,11 @@ function paintRoadZ(x, half, z0, z1, yAt) {
 }
 
 /* ------------------------------------------------------------------ streets */
-const AVE = [-720, -520, -320, -120, 80, 280, 480, 680]; // east–west avenues
+const AVE = [-1080, -860, -640, -420, -220, -20, 180, 380, 580, 780, 980]; // east–west avenues
 /* North–south streets. Two of the odd numbers are deliberate: 0 is the central
    boulevard the river is crossed by downtown, and the grid is otherwise the
    same 200 m rhythm the avenues are on. */
-const ST  = [-760, -540, -320, -100, 0, 100, 320, 540, 760];
+const ST  = [-1100, -880, -660, -440, -220, 0, 220, 440, 660, 880, 1100];
 const AVE_HALF = 7;
 const ST_HALF = 6;
 /* Where the street grid ends, and with it the city: past these lines the map
@@ -1357,7 +1386,13 @@ function buildDistricts() {
           const lx1 = xa + cw * (a + 1) - 4, lz1 = za + cd * (r + 1) - 4;
           if (lx1 - lx0 < 10 || lz1 - lz0 < 10) continue;
           if (inRiver((lx0 + lx1) / 2, (lz0 + lz1) / 2)) continue;
-          if (zone === "downtown") tower(lx0, lz0, lx1, lz1, KERB);
+          /* the owner's own models, in preference to anything drawn here */
+          const wanted = OWN_BUILDINGS.byZone[zone] ?? [];
+          if (wanted.length) {
+            bakeBuilding(G, OWN_BUILDINGS.byName, wanted[(rnd() * wanted.length) | 0],
+              lx0, lz0, lx1, lz1, KERB, BLD_MAT_BASE);
+          }
+          else if (zone === "downtown") tower(lx0, lz0, lx1, lz1, KERB);
           else if (zone === "industrial") (rnd() < 0.45 ? hall : warehouse)(lx0, lz0, lx1, lz1, KERB);
           else if (zone === "mall") buildMall(lx0, lz0, lx1, lz1, KERB);
           else home(lx0, lz0, lx1, lz1, KERB);

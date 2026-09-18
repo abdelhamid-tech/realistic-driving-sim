@@ -637,6 +637,21 @@ export default function Import() {
                     <PaintPicker paint={previewPaint} onChange={setPreviewPaint} compact />
                   </div>
 
+                  <div className="mt-3">
+                    <div className="mb-1 font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                      SPEED
+                    </div>
+                    <SpeedPicker
+                      value={justAddedRow.speed ?? 1}
+                      onPick={(v) =>
+                        void guarded(
+                          () => carTune({ password: key, id: justAddedRow.id as never, speed: v }),
+                          "Saving",
+                        )
+                      }
+                    />
+                  </div>
+
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <select
                       value={justAddedRow.preset}
@@ -709,9 +724,15 @@ export default function Import() {
                 <span className="font-display text-sm font-bold tracking-tight">{c.name}</span>
                 <span className="font-mono text-[10px] text-muted-foreground">
                   {c.klass} · {CAR_PRESETS.find((p) => p.id === c.preset)?.label ?? c.preset} ·{" "}
-                  {formatBytes(c.bytes)}
+                  ×{(c.speed ?? 1).toString()} · {formatBytes(c.bytes)}
                 </span>
                 <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                  <SpeedPicker
+                    value={c.speed ?? 1}
+                    onPick={(v) =>
+                      void guarded(() => carTune({ password: key, id: c.id as never, speed: v }), "Saving")
+                    }
+                  />
                   <select
                     value={c.preset}
                     onChange={(e) =>
@@ -953,6 +974,41 @@ export default function Import() {
           <ArrowLeft className="size-3" /> BACK TO THE CITY
         </Link>
       </div>
+    </div>
+  );
+}
+
+/** The speed dial an imported car gets: a multiplier on the preset's own. */
+const SPEEDS = [
+  { v: 0.6, label: "SLOW ×0.6" },
+  { v: 0.8, label: "CALM ×0.8" },
+  { v: 1, label: "NORMAL ×1" },
+  { v: 1.3, label: "FAST ×1.3" },
+  { v: 1.7, label: "RACE ×1.7" },
+  { v: 2, label: "INSANE ×2" },
+];
+
+function SpeedPicker({
+  value, onPick,
+}: { value: number; onPick: (v: number) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {SPEEDS.map((s) => (
+        <button
+          key={s.v}
+          type="button"
+          onClick={() => onPick(s.v)}
+          className={
+            "cursor-pointer border px-2 py-1 font-mono text-[10px] transition-colors " +
+            (Math.abs((value || 1) - s.v) < 0.01
+              ? "border-signal bg-signal text-carbon"
+              : "border-edge/12 text-muted-foreground hover:border-signal/50 hover:text-chalk")
+          }
+          title={`Top speed and power ×${s.v}`}
+        >
+          {s.label}
+        </button>
+      ))}
     </div>
   );
 }

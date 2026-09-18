@@ -78,7 +78,7 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
     name: "RIVERBEND",
     kind: "glb",
     url: "maps/riverbend.glb",
-    bytes: 7530104,
+    bytes: 8177000,
     fitTo: 0,
     turn: 0,
     cell: 4,
@@ -86,7 +86,7 @@ export const BUILT_IN_MAPS: WorldMapSource[] = [
     spawn: null,
     propsUrl: "maps/riverbend.props.json",
     credit:
-      "1800 × 1800 m river city · 6 crossings with real roads over every one, downtown, industrial, mall, river island, tunnels, forest · real trees, lamps and signals",
+      "2400 × 2400 m open river city · 6 crossings, downtown with real imported buildings, industrial, mall, river island, tunnels, forest to the horizon · real trees, lamps and signals",
   },
 ];
 

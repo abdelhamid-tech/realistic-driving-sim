@@ -145,12 +145,15 @@ export function createGame(opts: GameOptions): GameHandle {
           float star = smoothstep(0.9972, 0.9995, hs);
           c += vec3(0.85, 0.90, 1.0) * star * uNight * smoothstep(0.0, 0.25, d.y) * 1.7;
         }
-        /* clouds */
-        if (d.y > 0.012) {
+        /* clouds — faded out before the horizon, where d.xz/(d.y+0.18) blows
+           up and the noise aliases into horizontal banding */
+        if (d.y > 0.02) {
           vec2 cuv = d.xz / (d.y + 0.18);
           float t = uTime * 0.0055;
           float den = fbm(cuv * 0.5 + vec2(t, -t * 0.35));
-          float cov = smoothstep(0.55 - uOvercast * 0.35, 0.80 - uOvercast * 0.25, den) * smoothstep(0.02, 0.18, d.y);
+          float cov = smoothstep(0.55 - uOvercast * 0.35, 0.80 - uOvercast * 0.25, den)
+            * smoothstep(0.02, 0.18, d.y)
+            * smoothstep(0.02, 0.09, d.y);
           vec3 cb = mix(vec3(0.96, 0.93, 0.90), vec3(0.42, 0.45, 0.52), smoothstep(0.5, 0.96, den));
           cb = mix(cb, vec3(0.55, 0.57, 0.62), uOvercast);
           cb *= mix(0.20, 1.0, uDay);

@@ -175,6 +175,8 @@ export default function Drive() {
   const [camera, setCamera] = useState(() => loadProfile().camera);
   const [volume, setVolume] = useState(() => loadProfile().volume);
   const [headlights, setHeadlights] = useState(false);
+  /* the desktop telemetry panel, off and on in the settings panel */
+  const [telemetry, setTelemetry] = useState(() => loadProfile().telemetry);
 
   const [room, setRoom] = useState(readRoom);
   const [roomDraft, setRoomDraft] = useState(readRoom);
@@ -799,8 +801,8 @@ export default function Drive() {
      so the next visit opens on the same car, at the same hour, at the same
      volume — on any device the player signs in on. */
   useEffect(() => {
-    saveProfile({ car: carId, hour, camera, volume, net: netOn });
-  }, [carId, hour, camera, volume, netOn]);
+    saveProfile({ car: carId, hour, camera, volume, net: netOn, telemetry });
+  }, [carId, hour, camera, volume, netOn, telemetry]);
 
   /* so a bug report from the platform's feedback form can be reproduced */
   useEffect(() => {
@@ -1050,9 +1052,10 @@ export default function Drive() {
           ))}
         </div>
 
-        {/* telemetry — the desktop panel. On a phone the radar carries speed,
-            gear and drift points, and the two big panels would land on the
-            pedals. */}
+        {/* telemetry — the desktop panel, which the player can turn off in the
+            settings. On a phone the radar carries speed, gear and drift points,
+            and the two big panels would land on the pedals. */}
+        {telemetry ? (
         <div className="absolute bottom-6 right-6 hidden w-[212px] paper border border-edge/12 bg-card/88 p-3 backdrop-blur-sm lg:block">
           <div className="mb-2 font-mono text-[9px] tracking-[0.3em] text-muted-foreground">TELEMETRY</div>
           {/* the gauge and the cluster are drawn light-on-dark in code
@@ -1099,6 +1102,7 @@ export default function Drive() {
             <span>{(tel?.traffic ?? 0) + " CARS"}</span>
           </div>
         </div>
+        ) : null}
 
         {/* cluster — desktop only, for the same reason as the telemetry panel */}
         <div className="absolute bottom-6 left-6 hidden paper border border-edge/12 bg-card/88 p-2 backdrop-blur-sm lg:block">
@@ -1493,6 +1497,19 @@ export default function Drive() {
                   {c.toUpperCase()}
                 </button>
               ))}
+            </div>
+          </Group>
+
+          <Group label="Hud">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Telemetry panel</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  The desktop instrument panel — G-meter, tyre temps, drift angle. Off, only the
+                  radar and the cluster stay on the screen.
+                </p>
+              </div>
+              <Switch checked={telemetry} className="cursor-pointer" onCheckedChange={setTelemetry} />
             </div>
           </Group>
 
