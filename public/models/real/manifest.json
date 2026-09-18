@@ -1,14 +1,129 @@
 {
-  "generated": "2026-09-18T00:12:49.185Z",
+  "generated": "2026-09-18T00:27:29.226Z",
   "note": "Real models downloaded from the web and optimised for the game. See CREDITS.md.",
   "models": [
+    {
+      "slug": "bus-city",
+      "slot": "vehicle",
+      "name": "City bus",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/voxel-city-districts-city-bus-b39a97a5",
+      "file": "models/real/bus-city.glb",
+      "triangles": 300,
+      "kilobytes": 26,
+      "materials": [
+        "dark",
+        "concrete",
+        "glass",
+        "roof",
+        "accent"
+      ]
+    },
+    {
+      "slug": "car-city",
+      "slot": "vehicle",
+      "name": "City car",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/car-park-and-road-vehicle-fleet-city-car-033e3215",
+      "file": "models/real/car-city.glb",
+      "triangles": 31000,
+      "kilobytes": 1415,
+      "materials": [
+        "paintC",
+        "trim",
+        "glass",
+        "interior",
+        "lightWhite",
+        "alloy",
+        "lightAmber",
+        "lightRed"
+      ]
+    },
+    {
+      "slug": "car-suv",
+      "slot": "vehicle",
+      "name": "City SUV",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/car-park-and-road-vehicle-fleet-city-suv-427b6f75",
+      "file": "models/real/car-suv.glb",
+      "triangles": 29436,
+      "kilobytes": 1432,
+      "materials": [
+        "paintD",
+        "trim",
+        "glass",
+        "interior",
+        "lightWhite",
+        "alloy",
+        "lightAmber",
+        "lightRed"
+      ]
+    },
+    {
+      "slug": "door-warehouse",
+      "slot": "door",
+      "name": "Warehouse door pair",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/distillery-and-bonded-warehouse-warehouse-door-pair-3108b2f4",
+      "file": "models/real/door-warehouse.glb",
+      "triangles": 1512,
+      "kilobytes": 149,
+      "materials": [
+        "stone",
+        "paint",
+        "iron"
+      ]
+    },
+    {
+      "slug": "lamp-street-c",
+      "slot": "lamp",
+      "name": "Transit street lamp",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/bus-station-and-city-transit-street-lamp-2c6420cf",
+      "file": "models/real/lamp-street-c.glb",
+      "triangles": 120,
+      "kilobytes": 11,
+      "materials": [
+        "charcoal",
+        "steel",
+        "canary"
+      ]
+    },
+    {
+      "slug": "lamp-street-d",
+      "slot": "lamp",
+      "name": "Canal-side street lamp",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/canal-town-and-windmill-town-street-lamp-2c561969",
+      "file": "models/real/lamp-street-d.glb",
+      "triangles": 1052,
+      "kilobytes": 32,
+      "materials": [
+        "iron",
+        "glass",
+        "brass"
+      ]
+    },
     {
       "slug": "plant-fern",
       "slot": "plant",
       "name": "Fern (scanned)",
       "author": "Rob Tuytel / Rico Cilliers · Poly Haven",
-      "license": "CC0 (public domain)",
-      "source": "https://polyhaven.com/a/fern_02",
+      "license": "CC0 1.0 Universal",
+      "source": "polyhaven",
+      "sourceUrl": "https://polyhaven.com/a/fern_02",
       "file": "models/real/plant-fern.glb",
       "triangles": 5996,
       "kilobytes": 169,
@@ -17,17 +132,455 @@
       ]
     },
     {
+      "slug": "plant-flower-bed",
+      "slot": "plant",
+      "name": "Flower bed",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/city-park-and-playground-flower-bed-70ea69ff",
+      "file": "models/real/plant-flower-bed.glb",
+      "triangles": 560,
+      "kilobytes": 53,
+      "materials": [
+        "paving",
+        "charcoal",
+        "grass",
+        "poppy",
+        "sunflower",
+        "azure"
+      ]
+    },
+    {
+      "slug": "plant-hedge",
+      "slot": "plant",
+      "name": "Clipped hedge",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/city-park-and-playground-hedge-section-c1ff730d",
+      "file": "models/real/plant-hedge.glb",
+      "triangles": 36,
+      "kilobytes": 4,
+      "materials": [
+        "grass",
+        "charcoal"
+      ]
+    },
+    {
+      "slug": "plant-meadow",
+      "slot": "plant",
+      "name": "Meadow tuft",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/alpine-and-arctic-biomes-alpine-meadow-tuft-2cc5d54a",
+      "file": "models/real/plant-meadow.glb",
+      "triangles": 720,
+      "kilobytes": 52,
+      "materials": [
+        "leaf"
+      ]
+    },
+    {
+      "slug": "plant-rose",
+      "slot": "plant",
+      "name": "Wild rose",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/alpine-and-arctic-biomes-alpine-rose-53142521",
+      "file": "models/real/plant-rose.glb",
+      "triangles": 450,
+      "kilobytes": 34,
+      "materials": [
+        "bark",
+        "leaf",
+        "flower"
+      ]
+    },
+    {
+      "slug": "plant-tussock",
+      "slot": "plant",
+      "name": "Tussock grass",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/safari-camp-and-bush-lodge-grass-tuft-cluster-8eaa2b17",
+      "file": "models/real/plant-tussock.glb",
+      "triangles": 168,
+      "kilobytes": 13,
+      "materials": [
+        "thatch"
+      ]
+    },
+    {
+      "slug": "roof-vent",
+      "slot": "roofvent",
+      "name": "Roof kiln vent",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/distillery-and-bonded-warehouse-pagoda-roof-vent-a6001cc0",
+      "file": "models/real/roof-vent.glb",
+      "triangles": 636,
+      "kilobytes": 59,
+      "materials": [
+        "slate",
+        "timber",
+        "iron"
+      ]
+    },
+    {
+      "slug": "shop-cafe-bay",
+      "slot": "shopfront",
+      "name": "Cafe shopfront bay",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/bakery-and-cafe-shopfront-window-module-0d3000e9",
+      "file": "models/real/shop-cafe-bay.glb",
+      "triangles": 768,
+      "kilobytes": 57,
+      "materials": [
+        "floor",
+        "surface",
+        "glass",
+        "dark"
+      ]
+    },
+    {
+      "slug": "shop-glazed-bay",
+      "slot": "shopfront",
+      "name": "Glazed shopfront bay",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/laundrette-and-cleaning-shopfront-module-glazed-94b928a6",
+      "file": "models/real/shop-glazed-bay.glb",
+      "triangles": 556,
+      "kilobytes": 41,
+      "materials": [
+        "dark",
+        "metal",
+        "glass",
+        "carcass",
+        "accent"
+      ]
+    },
+    {
+      "slug": "shop-pier",
+      "slot": "shopfront",
+      "name": "Shopfront pier",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/retail-store-fixtures-and-mall-shopfront-pier-module-420463fc",
+      "file": "models/real/shop-pier.glb",
+      "triangles": 320,
+      "kilobytes": 24,
+      "materials": [
+        "dark",
+        "carcass"
+      ]
+    },
+    {
       "slug": "signal-stoplight",
       "slot": "signal",
       "name": "Stoplight (Google Poly)",
       "author": "Poly by Google",
       "license": "CC-BY 3.0",
-      "source": "https://poly.pizza/m/3suiQY-gArw",
+      "source": "polypizza",
+      "sourceUrl": "https://poly.pizza/m/3suiQY-gArw",
       "file": "models/real/signal-stoplight.glb",
       "triangles": 176,
       "kilobytes": 14,
       "materials": [
         "main.2"
+      ]
+    },
+    {
+      "slug": "signal-transit",
+      "slot": "signal",
+      "name": "Traffic signal (three-aspect)",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/bus-station-and-city-transit-traffic-light-4b8313ca",
+      "file": "models/real/signal-transit.glb",
+      "triangles": 156,
+      "kilobytes": 12,
+      "materials": [
+        "charcoal",
+        "crimson",
+        "canary",
+        "azure"
+      ],
+      "lenses": {
+        "red": "crimson",
+        "amber": "canary",
+        "green": "azure"
+      }
+    },
+    {
+      "slug": "street-awning",
+      "slot": "awning",
+      "name": "Retractable awning",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/bakery-and-cafe-awning-retractable-003d560f",
+      "file": "models/real/street-awning.glb",
+      "triangles": 1154,
+      "kilobytes": 84,
+      "materials": [
+        "metal",
+        "accent",
+        "carcass",
+        "dark"
+      ]
+    },
+    {
+      "slug": "street-bench",
+      "slot": "bench",
+      "name": "Park bench",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/city-park-and-playground-park-bench-dfa5e953",
+      "file": "models/real/street-bench.glb",
+      "triangles": 144,
+      "kilobytes": 18,
+      "materials": [
+        "charcoal",
+        "timber"
+      ]
+    },
+    {
+      "slug": "street-bin",
+      "slot": "bin",
+      "name": "Litter bin",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/motorway-services-and-truck-park-car-park-litter-bin-1c2ec83d",
+      "file": "models/real/street-bin.glb",
+      "triangles": 576,
+      "kilobytes": 38,
+      "materials": [
+        "dark",
+        "metal",
+        "accent",
+        "white"
+      ]
+    },
+    {
+      "slug": "street-bollard",
+      "slot": "bollard",
+      "name": "Bollard",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/car-park-and-road-vehicle-fleet-bollard-e7119d33",
+      "file": "models/real/street-bollard.glb",
+      "triangles": 108,
+      "kilobytes": 8,
+      "materials": [
+        "steel",
+        "lightAmber"
+      ]
+    },
+    {
+      "slug": "street-bus-stop",
+      "slot": "busstop",
+      "name": "Bus shelter",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/bus-station-and-city-transit-bus-shelter-with-ad-panel-3a7216ac",
+      "file": "models/real/street-bus-stop.glb",
+      "triangles": 192,
+      "kilobytes": 17,
+      "materials": [
+        "steel",
+        "glass",
+        "crimson",
+        "canary",
+        "azure"
+      ]
+    },
+    {
+      "slug": "street-cone",
+      "slot": "cone",
+      "name": "Traffic cone",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/motorway-services-and-truck-park-traffic-cone-338a0889",
+      "file": "models/real/street-cone.glb",
+      "triangles": 232,
+      "kilobytes": 15,
+      "materials": [
+        "dark",
+        "amber",
+        "white"
+      ]
+    },
+    {
+      "slug": "street-dumpster",
+      "slot": "dumpster",
+      "name": "Dumpster",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/battle-royale-town-and-airfield-dumpster-dfad923c",
+      "file": "models/real/street-dumpster.glb",
+      "triangles": 1424,
+      "kilobytes": 45,
+      "materials": [
+        "olive",
+        "gunmetal",
+        "black"
+      ]
+    },
+    {
+      "slug": "street-parasol",
+      "slot": "parasol",
+      "name": "Parasol",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/golf-course-and-clubhouse-course-parasol-36607444",
+      "file": "models/real/street-parasol.glb",
+      "triangles": 280,
+      "kilobytes": 23,
+      "materials": [
+        "charcoal",
+        "timber",
+        "white",
+        "red"
+      ]
+    },
+    {
+      "slug": "tree-broadleaf",
+      "slot": "tree",
+      "name": "Park broadleaf",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/city-park-and-playground-park-tree-broadleaf-0d7e2fa1",
+      "file": "models/real/tree-broadleaf.glb",
+      "triangles": 278,
+      "kilobytes": 28,
+      "materials": [
+        "timber",
+        "grass"
+      ]
+    },
+    {
+      "slug": "tree-cherry",
+      "slot": "tree",
+      "name": "Cherry tree in blossom",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/japanese-school-and-city-street-cherry-tree-blossom-618a9f6d",
+      "file": "models/real/tree-cherry.glb",
+      "triangles": 2294,
+      "kilobytes": 182,
+      "materials": [
+        "timber",
+        "blossom",
+        "concrete"
+      ]
+    },
+    {
+      "slug": "tree-hazel",
+      "slot": "tree",
+      "name": "Hazel coppice",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/temperate-forest-ecology-hazel-coppice-stool-4ae89da0",
+      "file": "models/real/tree-hazel.glb",
+      "triangles": 2678,
+      "kilobytes": 190,
+      "materials": [
+        "barkOak",
+        "leafSummer"
+      ]
+    },
+    {
+      "slug": "tree-wild-cherry",
+      "slot": "tree",
+      "name": "Wild cherry",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/temperate-forest-ecology-wild-cherry-mature-ca5ccec9",
+      "file": "models/real/tree-wild-cherry.glb",
+      "triangles": 2040,
+      "kilobytes": 145,
+      "materials": [
+        "barkCherry",
+        "leafSummer"
+      ]
+    },
+    {
+      "slug": "van-response",
+      "slot": "vehicle",
+      "name": "Fast response car",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/fire-and-emergency-services-fast-response-car-0ec65a15",
+      "file": "models/real/van-response.glb",
+      "triangles": 2216,
+      "kilobytes": 108,
+      "materials": [
+        "rubber",
+        "tread",
+        "chrome",
+        "red",
+        "glass",
+        "plastic",
+        "hivis"
+      ]
+    },
+    {
+      "slug": "window-bay",
+      "slot": "window",
+      "name": "Upper-floor window bay",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/halloween-slasher-street-upper-floor-window-bay-67f7d3d8",
+      "file": "models/real/window-bay.glb",
+      "triangles": 2008,
+      "kilobytes": 79,
+      "materials": [
+        "clapboard",
+        "dark",
+        "glass",
+        "paint",
+        "metal"
+      ]
+    },
+    {
+      "slug": "window-stillhouse",
+      "slot": "window",
+      "name": "Stillhouse window bay",
+      "author": "3D Assets · 3dassets.dev",
+      "license": "CC0 1.0 Universal",
+      "source": "3dassets",
+      "sourceUrl": "https://3dassets.dev/assets/distillery-and-bonded-warehouse-stillhouse-window-bay-78539d82",
+      "file": "models/real/window-stillhouse.glb",
+      "triangles": 1380,
+      "kilobytes": 152,
+      "materials": [
+        "stone",
+        "glass",
+        "iron"
       ]
     }
   ]
