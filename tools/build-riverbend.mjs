@@ -754,20 +754,33 @@ function buildGround() { // the land under the city
     G.slab(x, zc - half, x + STEP, zc + half, WATER_Y, M.water);
   }
   /* the land beyond the map: fields out to the fog, so the world has no edge
-     a player can fall off or see past — the way an open city reads */
-  const OUT = 2600;
-  for (let x = -OUT; x < OUT; x += 60) {
-    G.slab(x, -OUT, x + 60, -R, 0, M.grass);
-    G.slab(x, R, x + 60, OUT, 0, M.grass);
+     a player can fall off or see past — the way an open city reads. The world
+     ends in a RING, not a square: the ground keeps going until a radius of
+     RING, so no straight border ever reads as a box on the horizon. */
+  const RING = 2450;
+  const STEP2 = 60;
+  const inRing = (x0, z0, x1, z1) => {
+    /* keep the cell when any corner (or centre) is inside the ring */
+    const cx = Math.max(Math.min(x1, RING), Math.min(x0, RING));
+    const cz = Math.max(Math.min(z1, RING), Math.min(z0, RING));
+    for (const [qx, qz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1], [cx, cz]]) {
+      if (qx * qx + qz * qz < RING * RING) return true;
+    }
+    return false;
+  };
+  for (let x = -RING; x < RING; x += STEP2) {
+    if (inRing(x, -RING, x + STEP2, -R)) G.slab(x, -RING, x + STEP2, -R, 0, M.grass);
+    if (inRing(x, R, x + STEP2, RING)) G.slab(x, R, x + STEP2, RING, 0, M.grass);
   }
-  for (let z = -R; z < R; z += 60) {
-    G.slab(-OUT, z, -R, z + 60, 0, M.grass);
-    G.slab(R, z, OUT, z + 60, 0, M.grass);
+  for (let z = -R; z < R; z += STEP2) {
+    if (inRing(-RING, z, -R, z + STEP2)) G.slab(-RING, z, -R, z + STEP2, 0, M.grass);
+    if (inRing(R, z, RING, z + STEP2)) G.slab(R, z, RING, z + STEP2, 0, M.grass);
   }
-  /* a treeline at the world's edge, so the horizon reads as forest */
-  for (let k = 0; k < 900; k++) {
+  /* a treeline along the ring's rim, so the horizon reads as forest — and no
+     square corner anywhere */
+  for (let k = 0; k < 1100; k++) {
     const a = rnd() * Math.PI * 2;
-    const d = R + 40 + rnd() * 380;
+    const d = R + 40 + rnd() * 520;
     tree(Math.cos(a) * d, Math.sin(a) * d, rr(1.4, 2.4));
   }
 }

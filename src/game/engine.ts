@@ -1321,12 +1321,12 @@ export function createGame(opts: GameOptions): GameHandle {
   /* --------------------------------------------------- physics core state */
   const DMODES = [
     {
-      name: "NORMAL", muT: 1.25, muG: 0.55, pkF: 0.115, pkR: 0.115, paF: 0.150, paR: 0.150,
+      name: "NORMAL", muT: 1.25, muG: 0.82, pkF: 0.115, pkR: 0.115, paF: 0.150, paR: 0.150,
       assist: true, steerMax: 0.50, steerFade: 26, coup: 0.90,
       upLo: 2800, upHi: 6400, shift: 0.22, suspK: 1.0, suspD: 1.0, dfd: 0.55, tcCap: 0.40,
     },
     {
-      name: "DRIFT", muT: 1.22, muG: 0.60, pkF: 0.100, pkR: 0.128, paF: 0.180, paR: 0.110,
+      name: "DRIFT", muT: 1.22, muG: 0.88, pkF: 0.100, pkR: 0.128, paF: 0.180, paR: 0.110,
       assist: false, steerMax: 0.68, steerFade: 33, coup: 1.15,
       upLo: 3800, upHi: 7300, shift: 0.10, suspK: 1.06, suspD: 1.10, dfd: 0.42, tcCap: 0,
     },
@@ -1336,7 +1336,7 @@ export function createGame(opts: GameOptions): GameHandle {
       upLo: 3400, upHi: 6900, shift: 0.14, suspK: 0.72, suspD: 0.80, dfd: 0.45, tcCap: 0,
     },
     {
-      name: "ARCADE", muT: 1.60, muG: 1.20, pkF: 0.130, pkR: 0.130, paF: 0.190, paR: 0.190,
+      name: "ARCADE", muT: 1.60, muG: 1.32, pkF: 0.130, pkR: 0.130, paF: 0.190, paR: 0.190,
       assist: true, steerMax: 0.55, steerFade: 29, coup: 1.35,
       upLo: 4200, upHi: 7600, shift: 0.09, suspK: 1.15, suspD: 1.15, dfd: 1.05, tcCap: 0.25,
     },
@@ -1901,7 +1901,7 @@ export function createGame(opts: GameOptions): GameHandle {
         }
         wc.Fx = Fx;
         wc.Fy = Fy;
-        Fx += (wc.surf === "GRASS" ? -0.055 : -0.011) * Fz * clamp(vLong / 3, -1, 1);
+        Fx += (wc.surf === "GRASS" ? -0.022 : -0.011) * Fz * clamp(vLong / 3, -1, 1);
         eFF.copy(eWF).multiplyScalar(Fx).addScaledVector(eWR, Fy);
         eF.add(eFF);
         eT.add(t2.crossVectors(t1, eFF));
