@@ -96,7 +96,7 @@ interface PropRow {
 /** The public room everybody lands in unless an invite says otherwise. */
 const DEFAULT_ROOM = "apex-city";
 /** How often our position goes out. About eight a second: smooth and cheap. */
-const PUBLISH_MS = 130;
+const PUBLISH_MS = 90;
 
 /** One tap to set the mood. Nothing else about the sky is adjustable. */
 const SKY_PRESETS: { label: string; hour: number }[] = [

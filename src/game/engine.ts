@@ -1265,6 +1265,14 @@ export function createGame(opts: GameOptions): GameHandle {
       const far = (p.x - car.pos.x) ** 2 + (p.z - car.pos.z) ** 2 > 420 * 420;
       rc.root.visible = !far;
       if (far) continue;
+      /* dead reckoning: creep the target forward along the last reported
+         heading so the car glides between network samples instead of
+         snapping to each one — samples arrive ~11x/s, frames render 60x/s */
+      if (rc.speed > 0.5) {
+        rc.tx += Math.sin(rc.tyaw) * rc.speed * dt;
+        rc.tz += Math.cos(rc.tyaw) * rc.speed * dt;
+      }
+
       p.x += (rc.tx - p.x) * k;
       p.z += (rc.tz - p.z) * k;
       const want = Math.max(groundH(p.x, p.z) + 0.03, rc.ty);
