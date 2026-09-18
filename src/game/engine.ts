@@ -137,13 +137,28 @@ export function createGame(opts: GameOptions): GameHandle {
         float s = max(dot(d, sunDir), 0.0);
         c += vec3(1.0, 0.80, 0.52) * (pow(s, 1200.0) * 4.0 + pow(s, 90.0) * 0.45 * uDay + pow(s, 8.0) * 0.18 * uDay);
         float mo = max(dot(d, -sunDir), 0.0);
-        c += vec3(0.72, 0.78, 0.98) * pow(mo, 3000.0) * 4.5 * uNight;
-        /* stars */
+        c += vec3(0.72, 0.78, 0.98) * pow(mo, 3000.0) * 0.0 * uNight;
+        /* stars — three sizes, a faint milky-way band, gentle twinkle */
         if (uNight > 0.02 && d.y > 0.0) {
-          vec3 sp = floor(normalize(vP) * 320.0);
+          vec3 dn = normalize(vP);
+          float tw = 0.75 + 0.25 * sin(uTime * 2.1 + hash(dn.xy * 91.0) * 40.0);
+          vec3 sp = floor(dn * 320.0);
           float hs = hash(sp.xy + sp.z * 21.7);
           float star = smoothstep(0.9972, 0.9995, hs);
-          c += vec3(0.85, 0.90, 1.0) * star * uNight * smoothstep(0.0, 0.25, d.y) * 1.7;
+          vec3 sp2 = floor(dn * 620.0);
+          float hs2 = hash(sp2.xy + sp2.z * 17.3);
+          star += smoothstep(0.9989, 0.9997, hs2) * 0.55;
+          /* the milky way: a soft diagonal band of dense dim stars */
+          float band = exp(-pow((dn.x * 0.62 - dn.y * 0.55 + dn.z * 0.55), 2.0) * 9.0);
+          star += smoothstep(0.996, 0.999, hash(floor(dn * 220.0).xz + 5.1)) * band * 1.4;
+          c += vec3(0.85, 0.90, 1.0) * star * tw * uNight * smoothstep(0.0, 0.25, d.y) * 1.7;
+        }
+        /* the moon: a real disc with a soft halo, not a single specular dot */
+        if (uNight > 0.02) {
+          float mo = max(dot(d, -sunDir), 0.0);
+          c += vec3(0.78, 0.83, 0.95) * pow(mo, 2600.0) * 6.0 * uNight;
+          c += vec3(0.45, 0.52, 0.68) * pow(mo, 90.0) * 0.30 * uNight;
+          c += vec3(0.22, 0.28, 0.42) * pow(mo, 8.0) * 0.10 * uNight;
         }
         /* clouds — only well above the horizon: near it the projection
            d.xz/(d.y+0.18) explodes, the hash noise loses float precision and
@@ -2345,14 +2360,14 @@ export function createGame(opts: GameOptions): GameHandle {
 
     sun.position.copy(car.pos).addScaledVector(SUN_DIR, 210);
     sun.target.position.copy(car.pos);
-    sun.intensity = 2.15 * day * (1 - 0.6 * overcast) + 0.16 * night;
+    sun.intensity = 2.15 * day * (1 - 0.6 * overcast) + 0.34 * night;
     const sunCol = new THREE.Color();
     if (SUN_DIR.y > 0.18) sunCol.setHex(0xfff2df);
     else sunCol.setHex(0xffb271);
-    sunCol.lerp(new THREE.Color(0x9fb4d8), night);
+    sunCol.lerp(new THREE.Color(0xb9c9e8), night);
     sun.color.copy(sunCol);
 
-    hemi.intensity = 0.16 + 0.42 * day;
+    hemi.intensity = 0.28 + 0.42 * day;
     hemi.color.setHex(0xbccfe6).lerp(new THREE.Color(0x22304a), night);
     hemi.groundColor.setHex(0x77754c).lerp(new THREE.Color(0x14161c), night);
 

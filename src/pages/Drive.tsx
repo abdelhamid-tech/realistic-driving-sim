@@ -259,7 +259,7 @@ export default function Drive() {
         onError: (m) => setBootError(m),
         initialVehicle: carKind(carById(DEFAULT_CAR_ID)),
         initialWeather: "clear",
-        initialTimeOfDay: 16.2,
+        initialTimeOfDay: loadProfile().hour,
         initialPaint: readSavedPaint(PAINT_COLORS[4]),
         worldTextures: textureOverrides,
       });
