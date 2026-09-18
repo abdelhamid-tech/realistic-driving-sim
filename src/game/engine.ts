@@ -612,7 +612,11 @@ export function createGame(opts: GameOptions): GameHandle {
       color: 0x8c8a5e, map: grassTex, roughness: 1, vertexColors: true, envMapIntensity: 0.3,
     }));
     m.receiveShadow = true;
-    scene.add(m);
+    /* lives on worldRoot, not scene: with an imported map loaded the map's
+       own ground is the land — this bumpy procedural plain would poke through
+       its flat grass (y = 0) between the hills, reading as horizontal
+       green/beige banding on the horizon */
+    worldRoot.add(m);
   }
 
   /* --------------------------------------------------- roads & ribbon ring */
