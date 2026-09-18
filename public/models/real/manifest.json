@@ -1,0 +1,34 @@
+{
+  "generated": "2026-09-18T00:12:49.185Z",
+  "note": "Real models downloaded from the web and optimised for the game. See CREDITS.md.",
+  "models": [
+    {
+      "slug": "plant-fern",
+      "slot": "plant",
+      "name": "Fern (scanned)",
+      "author": "Rob Tuytel / Rico Cilliers · Poly Haven",
+      "license": "CC0 (public domain)",
+      "source": "https://polyhaven.com/a/fern_02",
+      "file": "models/real/plant-fern.glb",
+      "triangles": 5996,
+      "kilobytes": 169,
+      "materials": [
+        "fern_02"
+      ]
+    },
+    {
+      "slug": "signal-stoplight",
+      "slot": "signal",
+      "name": "Stoplight (Google Poly)",
+      "author": "Poly by Google",
+      "license": "CC-BY 3.0",
+      "source": "https://poly.pizza/m/3suiQY-gArw",
+      "file": "models/real/signal-stoplight.glb",
+      "triangles": 176,
+      "kilobytes": 14,
+      "materials": [
+        "main.2"
+      ]
+    }
+  ]
+}
