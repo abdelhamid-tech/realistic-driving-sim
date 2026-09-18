@@ -91,6 +91,13 @@ export interface PropSlotInfo {
   license: string;
 }
 
+/* Real models, downloaded from the web and optimised for the game —
+   public/models/real/ and its manifest. Slots fall back to the Kenney kits
+   below when a real model fails to load. */
+const REAL = {
+  credit: "3D Assets · 3dassets.dev / Poly Haven / Poly by Google",
+  license: "CC0 1.0 Universal (Poly stoplight: CC-BY 3.0)",
+};
 const NATURE = {
   credit: "Kenney · Nature Kit",
   license: "CC0 (public domain)",
@@ -125,13 +132,14 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     height: 6.5,
     scatter: true,
     variants: [
+      { url: "models/real/tree-broadleaf.glb" },
+      { url: "models/real/tree-cherry.glb" },
+      { url: "models/real/tree-hazel.glb" },
+      { url: "models/real/tree-wild-cherry.glb" },
       { url: "models/props/tree-oak.glb" },
       { url: "models/props/tree-detailed.glb" },
-      { url: "models/props/tree-pine.glb" },
-      { url: "models/props/suburban/tree-large.glb" },
-      { url: "models/props/suburban/tree-small.glb" },
     ],
-    ...NATURE,
+    ...REAL,
   },
   {
     id: "plant",
@@ -140,12 +148,15 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     height: 1.05,
     scatter: true,
     variants: [
-      { url: "models/props/bush-detailed.glb" },
-      { url: "models/props/bush-large.glb" },
-      { url: "models/props/plant-flat.glb" },
+      { url: "models/real/plant-flower-bed.glb" },
+      { url: "models/real/plant-hedge.glb" },
+      { url: "models/real/plant-meadow.glb" },
+      { url: "models/real/plant-rose.glb" },
+      { url: "models/real/plant-fern.glb" },
+      { url: "models/real/plant-tussock.glb" },
       { url: "models/props/flower-red.glb" },
     ],
-    ...NATURE,
+    ...REAL,
   },
   {
     id: "lamp",
@@ -153,11 +164,12 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     hint: "7 m posts on the kerb — the arm is turned to reach over the road",
     height: 7,
     variants: [
+      { url: "models/real/lamp-street-c.glb" },
+      { url: "models/real/lamp-street-d.glb" },
       { url: "models/props/street-lamp.glb" },
       { url: "models/props/roads/light-curved.glb" },
-      { url: "models/props/roads/light-square.glb" },
     ],
-    ...ROADS,
+    ...REAL,
   },
   {
     id: "signal",
@@ -167,8 +179,12 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     /* the shipped head looks down its own -X; the world's junctions expect a
        model looking down +Z at yaw 0, so it is turned a quarter turn once,
        here, and every spot is then a plain facing */
-    variants: [{ url: "models/props/traffic-light.glb", turn: 90 }],
-    ...ROADS,
+    variants: [
+      { url: "models/real/signal-transit.glb", turn: 90 },
+      { url: "models/real/signal-stoplight.glb", turn: 90 },
+      { url: "models/props/traffic-light.glb", turn: 90 },
+    ],
+    ...REAL,
   },
 
   /* ------------------------------------------------------ street furniture
@@ -184,24 +200,33 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     hint: "parks, the river walk and the mall — 0.92 m seat",
     height: 0.92,
     doubleSide: true,
-    variants: [{ url: "models/props/furniture/bench.glb" }],
-    ...FURNITURE,
+    variants: [
+      { url: "models/real/street-bench.glb" },
+      { url: "models/props/furniture/bench.glb" },
+    ],
+    ...REAL,
   },
   {
     id: "bin",
     label: "Litter bins",
     hint: "one on the kerb every few doors — 1.05 m",
     height: 1.05,
-    variants: [{ url: "models/props/furniture/trashcan.glb" }],
-    ...FURNITURE,
+    variants: [
+      { url: "models/real/street-bin.glb" },
+      { url: "models/props/furniture/trashcan.glb" },
+    ],
+    ...REAL,
   },
   {
     id: "dumpster",
     label: "Dumpsters",
     hint: "in the service yards and behind the workshops — 1.4 m",
     height: 1.4,
-    variants: [{ url: "models/props/roads/dumpster.glb" }],
-    ...ROADS,
+    variants: [
+      { url: "models/real/street-dumpster.glb" },
+      { url: "models/props/roads/dumpster.glb" },
+    ],
+    ...REAL,
   },
   {
     id: "planter",
@@ -234,10 +259,10 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     height: 1,
     doubleSide: true,
     variants: [
+      { url: "models/real/street-awning.glb" },
       { url: "models/props/commercial/detail-awning-wide.glb" },
-      { url: "models/props/commercial/detail-awning.glb" },
     ],
-    ...COMMERCIAL,
+    ...REAL,
   },
   {
     id: "parasol",
@@ -246,10 +271,10 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     height: 2.6,
     doubleSide: true,
     variants: [
+      { url: "models/real/street-parasol.glb" },
       { url: "models/props/commercial/detail-parasol-a.glb" },
-      { url: "models/props/commercial/detail-parasol-b.glb" },
     ],
-    ...COMMERCIAL,
+    ...REAL,
   },
   {
     id: "fence",
@@ -312,11 +337,11 @@ export const PROP_SLOTS: PropSlotInfo[] = [
     height: 0.9,
     doubleSide: true,
     variants: [
+      { url: "models/real/street-cone.glb" },
       { url: "models/props/roads/construction-cone.glb" },
       { url: "models/props/roads/construction-barrier.glb" },
-      { url: "models/props/roads/construction-fence.glb" },
     ],
-    ...ROADS,
+    ...REAL,
   },
 ];
 
