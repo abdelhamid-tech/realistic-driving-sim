@@ -51,6 +51,9 @@ async function loadOne(name) {
       const v = new THREE.Vector3();
       const perMat = new Map(); // material name -> tri list
       const matColor = new Map(); // material name -> [r,g,b]
+      const push = (list, a, b, c2) => {
+        list.push([a.clone(), b.clone(), c2.clone()]);
+      };
       scene.traverse((o) => {
         if (!o.isMesh || !o.geometry) return;
         const matName = o.material?.name || "building";
@@ -62,14 +65,10 @@ async function loadOne(name) {
         const index = o.geometry.getIndex();
         const n = index ? index.count : pos.count;
         for (let i = 0; i + 2 < n; i += 3) {
-          const t = [];
-          for (let k = 0; k < 3; k++) {
-            t.push(
-              v.fromBufferAttribute(pos, index ? index.getX(i + k) : i + k)
-                .applyMatrix4(o.matrixWorld).clone(),
-            );
-          }
-          list.push(t);
+          const a = v.fromBufferAttribute(pos, index ? index.getX(i) : i).applyMatrix4(o.matrixWorld).clone();
+          const b = v.fromBufferAttribute(pos, index ? index.getX(i + 1) : i + 1).applyMatrix4(o.matrixWorld).clone();
+          const c2 = v.fromBufferAttribute(pos, index ? index.getX(i + 2) : i + 2).applyMatrix4(o.matrixWorld).clone();
+          push(list, a, b, c2);
         }
       });
       // re-centre: base on y = 0, centred on x/z
@@ -133,7 +132,7 @@ export function bakeBuilding(G, byName, name, x0, z0, x1, z1, base, matBase) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   // gather every triangle once so normals survive the transform
   const matIndex = new Map(m.materials.map((n, i) => [n, matBase + i]));
-  for (const [matName, list] of Object.entries(m.trisByMat)) {
+  for (const [matName, list] of m.trisByMat instanceof Map ? m.trisByMat : Object.entries(m.trisByMat)) {
     const mi = matIndex.get(matName);
     if (mi === undefined) continue;
     for (const t of list) {
